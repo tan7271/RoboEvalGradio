@@ -1,7 +1,7 @@
 ffmpeg
 libgl1-mesa-dri
-libegl1-mesa
-libgles2-mesa
+libegl1-mesa-dev
+libgles2-mesa-dev
 libglib2.0-0
 libsm6
 libxext6

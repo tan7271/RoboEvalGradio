@@ -61,7 +61,7 @@ def install_openpi():
         
         repo_url = f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git"
         
-        # Try installing with --no-deps to bypass openpi-client dependency
+        # Install with --no-deps since all dependencies are in requirements.txt
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
             f"git+{repo_url}", "--no-cache-dir", "--no-deps", "--force-reinstall"
@@ -113,48 +113,9 @@ try:
 except ImportError as e:
     print(f"Error: OpenPI import failed after installation: {e}")
     
-    # Try to install missing dependencies
-    missing_deps = []
-    if "beartype" in str(e):
-        missing_deps.append("beartype==0.19.0")
-    if "augmax" in str(e):
-        missing_deps.append("augmax>=0.3.0")
-    if "dm-tree" in str(e):
-        missing_deps.append("dm-tree>=0.1.8")
-    if "jaxtyping" in str(e):
-        missing_deps.append("jaxtyping==0.2.36")
-    if "ml_collections" in str(e):
-        missing_deps.append("ml_collections==1.0.0")
-    if "orbax" in str(e):
-        missing_deps.append("orbax-checkpoint==0.11.13")
-    
-    if missing_deps:
-        print(f"Installing missing dependencies: {missing_deps}")
-        try:
-            result = subprocess.run([
-                sys.executable, "-m", "pip", "install", 
-                *missing_deps, "--no-cache-dir"
-            ], capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                print("Missing dependencies installed successfully")
-                # Try importing OpenPI again
-                try:
-                    from openpi.training import config as _config
-                    from openpi.policies import policy_config as _policy_config
-                    OPENPI_AVAILABLE = True
-                    print("OpenPI imported successfully after installing missing dependencies")
-                except ImportError as e2:
-                    print(f"OpenPI still not available after installing dependencies: {e2}")
-                    OPENPI_AVAILABLE = False
-            else:
-                print(f"Failed to install missing dependencies: {result.stderr}")
-                OPENPI_AVAILABLE = False
-        except Exception as install_error:
-            print(f"Error installing missing dependencies: {install_error}")
-            OPENPI_AVAILABLE = False
-    else:
-        OPENPI_AVAILABLE = False
+    # All dependencies should be in requirements.txt now
+    print(f"OpenPI import failed. Check that all dependencies are properly installed.")
+    OPENPI_AVAILABLE = False
 
 # --- RoboEval imports ---
 from roboeval.action_modes import JointPositionActionMode

@@ -13,11 +13,42 @@ import dataclasses
 from pathlib import Path
 from typing import Optional, Tuple
 import gradio as gr
+import subprocess
+import sys
 
 # --- Headless defaults (set BEFORE mujoco/roboeval imports) ---
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
+
+# --- Install RoboEval at runtime ---
+def install_roboeval():
+    """Install RoboEval from GitHub using the GH_TOKEN."""
+    try:
+        import roboeval
+        print("RoboEval already installed")
+        return True
+    except ImportError:
+        print("Installing RoboEval...")
+        gh_token = os.environ.get("GH_TOKEN")
+        if not gh_token:
+            raise RuntimeError("GH_TOKEN environment variable not set")
+        
+        repo_url = f"https://{gh_token}@github.com/helen9975/RoboEval.git"
+        result = subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            f"git+{repo_url}", "--no-cache-dir"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"Installation failed: {result.stderr}")
+            raise RuntimeError(f"Failed to install RoboEval: {result.stderr}")
+        
+        print("RoboEval installed successfully")
+        return True
+
+# Install RoboEval
+install_roboeval()
 
 # --- OpenPI (local inference) ---
 from openpi.training import config as _config

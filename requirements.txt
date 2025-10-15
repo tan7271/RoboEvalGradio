@@ -55,5 +55,5 @@ fsspec==2024.3.1
 packaging==25.0
 typing-extensions==4.15.0
 
-# Private repos (with token authentication)
-git+https://${GH_TOKEN}@github.com/helen9975/RoboEval.git
+# Private repos (with token authentication) - installed in app code
+# git+https://${GH_TOKEN}@github.com/helen9975/RoboEval.git

@@ -114,30 +114,44 @@ except ImportError as e:
     print(f"Error: OpenPI import failed after installation: {e}")
     
     # Try to install missing dependencies
+    missing_deps = []
+    if "beartype" in str(e):
+        missing_deps.append("beartype==0.19.0")
     if "augmax" in str(e):
-        print("Installing missing augmax dependency...")
+        missing_deps.append("augmax>=0.3.0")
+    if "dm-tree" in str(e):
+        missing_deps.append("dm-tree>=0.1.8")
+    if "jaxtyping" in str(e):
+        missing_deps.append("jaxtyping==0.2.36")
+    if "ml_collections" in str(e):
+        missing_deps.append("ml_collections==1.0.0")
+    if "orbax" in str(e):
+        missing_deps.append("orbax-checkpoint==0.11.13")
+    
+    if missing_deps:
+        print(f"Installing missing dependencies: {missing_deps}")
         try:
             result = subprocess.run([
                 sys.executable, "-m", "pip", "install", 
-                "augmax>=0.3.0", "--no-cache-dir"
+                *missing_deps, "--no-cache-dir"
             ], capture_output=True, text=True)
             
             if result.returncode == 0:
-                print("augmax installed successfully")
+                print("Missing dependencies installed successfully")
                 # Try importing OpenPI again
                 try:
                     from openpi.training import config as _config
                     from openpi.policies import policy_config as _policy_config
                     OPENPI_AVAILABLE = True
-                    print("OpenPI imported successfully after installing augmax")
+                    print("OpenPI imported successfully after installing missing dependencies")
                 except ImportError as e2:
-                    print(f"OpenPI still not available after installing augmax: {e2}")
+                    print(f"OpenPI still not available after installing dependencies: {e2}")
                     OPENPI_AVAILABLE = False
             else:
-                print(f"Failed to install augmax: {result.stderr}")
+                print(f"Failed to install missing dependencies: {result.stderr}")
                 OPENPI_AVAILABLE = False
         except Exception as install_error:
-            print(f"Error installing augmax: {install_error}")
+            print(f"Error installing missing dependencies: {install_error}")
             OPENPI_AVAILABLE = False
     else:
         OPENPI_AVAILABLE = False

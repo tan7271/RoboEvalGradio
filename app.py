@@ -112,7 +112,35 @@ try:
     print("OpenPI imported successfully")
 except ImportError as e:
     print(f"Error: OpenPI import failed after installation: {e}")
-    OPENPI_AVAILABLE = False
+    
+    # Try to install missing dependencies
+    if "augmax" in str(e):
+        print("Installing missing augmax dependency...")
+        try:
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", 
+                "augmax>=0.3.0", "--no-cache-dir"
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print("augmax installed successfully")
+                # Try importing OpenPI again
+                try:
+                    from openpi.training import config as _config
+                    from openpi.policies import policy_config as _policy_config
+                    OPENPI_AVAILABLE = True
+                    print("OpenPI imported successfully after installing augmax")
+                except ImportError as e2:
+                    print(f"OpenPI still not available after installing augmax: {e2}")
+                    OPENPI_AVAILABLE = False
+            else:
+                print(f"Failed to install augmax: {result.stderr}")
+                OPENPI_AVAILABLE = False
+        except Exception as install_error:
+            print(f"Error installing augmax: {install_error}")
+            OPENPI_AVAILABLE = False
+    else:
+        OPENPI_AVAILABLE = False
 
 # --- RoboEval imports ---
 from roboeval.action_modes import JointPositionActionMode

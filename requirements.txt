@@ -49,10 +49,10 @@ dm-control==1.0.31
 mujoco-utils==0.0.6
 gymnasium==0.29.1
 
-# Hugging Face
-datasets==4.0.0
+# Hugging Face (compatible with lerobot)
+datasets<=3.6.0,>=2.19.0
 huggingface-hub==0.34.4
-diffusers==0.29.0
+diffusers<0.27.0,>=0.26.3
 
 # Utilities
 hydra-core==1.3.2

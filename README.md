@@ -1,12 +1,141 @@
----
-title: RoboEvalGradio
-emoji: 📚
-colorFrom: purple
-colorTo: purple
-sdk: gradio
-sdk_version: 5.49.1
-app_file: app.py
-pinned: false
+# Pi0 Inference on RoboEval Tasks
+
+A Hugging Face Space for running Pi0 bimanual manipulation policy inference on various robot tasks from the RoboEval benchmark.
+
+## 🚀 Features
+
+- **Interactive Gradio Interface**: Easy-to-use web interface for running inference
+- **Multiple Tasks**: Support for 20+ bimanual manipulation tasks
+- **Real-time Video Output**: View robot execution videos immediately after inference
+- **Customizable Parameters**: Adjust max steps, FPS, and task instructions
+- **GPU Acceleration**: Runs on T4 GPU for fast inference
+
+## 📋 Available Tasks
+
+The Space supports all RoboEval bimanual manipulation tasks:
+
+### Manipulation Tasks
+- **Cube Handover**: Transfer a rod between robot hands
+- **Cube Handover (Orientation)**: Handover with orientation constraints
+- **Cube Handover (Position)**: Handover with position constraints
+- **Cube Handover (Position + Orientation)**: Full constraint handover
+- **Vertical Cube Handover**: Vertical handover variant
+
+### Lifting Tasks
+- **Lift Pot**: Bimanually lift a pot by its handles
+- **Lift Tray**: Lift and balance a tray
+- **Lift Tray (Drag)**: Drag and lift tray variant
+
+### Packing Tasks
+- **Pack Box**: Close a box containing objects
+- **Pack Box (Orientation)**: Packing with orientation constraints
+- **Pack Box (Position)**: Packing with position constraints
+
+### Book Manipulation
+- **Pick Single Book**: Pick up a book from a table
+- **Stack Single Book**: Place book on a shelf
+- **Stack Two Blocks**: Stack two cubes together
+
+### Utility Tasks
+- **Rotate Valve**: Turn a valve counter-clockwise
+- **Rotate Valve (Obstacle)**: Valve rotation with obstacles
+- **Rotate Valve (Position)**: Valve rotation with position constraints
+
+## 🛠️ Usage
+
+1. **Select a Task**: Choose from the dropdown menu of available tasks
+2. **Provide Checkpoint Path**: Enter the path to your Pi0 model checkpoint
+3. **Customize (Optional)**:
+   - Override the default task instruction
+   - Adjust maximum steps (default: 200)
+   - Set video FPS (default: 5)
+4. **Run Inference**: Click "🚀 Run Inference" to start
+5. **View Results**: Watch the execution video and see performance stats
+
+## 🔧 Setup for Private Checkpoints
+
+This Space is configured to work with private RoboEval repositories:
+
+1. **Create GitHub Token**:
+   - Go to GitHub Settings → Developer settings → Personal access tokens
+   - Create a token with `repo` scope
+   - Copy the token
+
+2. **Configure Space Secrets**:
+   - In your HF Space: Settings → Repository secrets
+   - Add secret: `GH_TOKEN` = your GitHub token
+   - The Space will use this to install from your private RoboEval repo
+
+3. **Checkpoint Access**:
+   - Upload your Pi0 checkpoint to the Space
+   - Or provide a path to a checkpoint in HF Hub
+   - The checkpoint should follow the expected directory structure
+
+## 💰 Cost Information
+
+- **Hardware**: T4 Small GPU (~$0.60/hour)
+- **Auto-sleep**: 10 minutes of inactivity
+- **Estimated cost**: $5-20/month for moderate use
+- **Billing**: Only charged when Space is actively running
+
+## 🔍 Technical Details
+
+### Model Architecture
+- **Policy**: Pi0 base bimanual droid (finetuned)
+- **Input**: Multi-camera RGB + proprioception
+- **Output**: 16-DOF joint actions
+- **Horizon**: 10-step open-loop planning
+
+### Environment
+- **Physics**: MuJoCo 3.3.3
+- **Robot**: Bimanual Panda arms
+- **Cameras**: Head, left wrist, right wrist (256x256)
+- **Control**: 20Hz (500Hz downsampled by 25x)
+
+### Video Output
+- **Format**: MP4 (H.264)
+- **Resolution**: 256x256
+- **FPS**: Configurable (default: 5)
+- **Storage**: Temporary files in `/tmp`
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **"Unknown task" error**:
+   - Ensure task name matches exactly from dropdown
+   - Check that RoboEval is properly installed
+
+2. **Checkpoint loading fails**:
+   - Verify checkpoint path is correct
+   - Ensure checkpoint has required `assets/` directory
+   - Check GitHub token has repo access
+
+3. **GPU out of memory**:
+   - Reduce max_steps parameter
+   - Try CPU mode (slower but works)
+
+4. **Video not generating**:
+   - Check that inference completed successfully
+   - Verify ffmpeg is installed (included in packages.txt)
+
+### Performance Tips
+
+- **Faster inference**: Reduce max_steps to 100-150
+- **Better quality**: Increase FPS to 10-15
+- **Cost savings**: Use shorter max_steps and lower FPS
+- **Debugging**: Check the status output for detailed error messages
+
+## 📚 References
+
+- **RoboEval**: [GitHub Repository](https://github.com/your-org/RoboEval)
+- **Pi0 Paper**: [OpenPI: An Open-Source Framework for Learning-Based Robot Manipulation](https://arxiv.org/abs/2024.xxxx)
+- **MuJoCo**: [Official Documentation](https://mujoco.readthedocs.io/)
+
+## 📄 License
+
+This Space is for research and educational purposes. Please refer to the original RoboEval and Pi0 licenses for usage terms.
+
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+**Note**: This is a private Space that requires proper authentication setup to access private repositories and checkpoints.

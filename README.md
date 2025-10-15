@@ -1,3 +1,15 @@
+---
+title: Pi0 Inference on RoboEval Tasks
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: "4.44.0"
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # Pi0 Inference on RoboEval Tasks
 
 A Hugging Face Space for running Pi0 bimanual manipulation policy inference on various robot tasks from the RoboEval benchmark.

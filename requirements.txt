@@ -56,4 +56,4 @@ packaging==25.0
 typing-extensions==4.15.0
 
 # Private repos (with token authentication)
-git+https://${GH_TOKEN}@github.com/[your-org]/RoboEval.git
+git+https://${GH_TOKEN}@github.com/helen9975/RoboEval.git

@@ -17,8 +17,8 @@ dm-control==1.0.31
 mujoco-utils==0.0.6
 gymnasium==0.29.1
 
-# OpenPI and related
-openpi==0.1.0
+# OpenPI and related - install from GitHub
+# openpi==0.1.0  # Install via runtime install
 transformers==4.48.1
 diffusers==0.29.0
 datasets==4.0.0

@@ -21,7 +21,7 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
-# --- Install RoboEval at runtime ---
+# --- Install RoboEval and OpenPI at runtime ---
 def install_roboeval():
     """Install RoboEval from GitHub using the GH_TOKEN."""
     try:
@@ -47,12 +47,44 @@ def install_roboeval():
         print("RoboEval installed successfully")
         return True
 
-# Install RoboEval
+def install_openpi():
+    """Install OpenPI from your forked repository using the GH_TOKEN."""
+    try:
+        import openpi
+        print("OpenPI already installed")
+        return True
+    except ImportError:
+        print("Installing OpenPI from tan7271/OpenPiRoboEval...")
+        gh_token = os.environ.get("GH_TOKEN")
+        if not gh_token:
+            raise RuntimeError("GH_TOKEN environment variable not set")
+        
+        repo_url = f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git"
+        result = subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            f"git+{repo_url}", "--no-cache-dir"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"OpenPI installation failed: {result.stderr}")
+            raise RuntimeError(f"Failed to install OpenPI: {result.stderr}")
+        
+        print("OpenPI installed successfully")
+        return True
+
+# Install both packages
 install_roboeval()
+install_openpi()
 
 # --- OpenPI (local inference) ---
-from openpi.training import config as _config
-from openpi.policies import policy_config as _policy_config
+try:
+    from openpi.training import config as _config
+    from openpi.policies import policy_config as _policy_config
+    OPENPI_AVAILABLE = True
+    print("OpenPI imported successfully")
+except ImportError as e:
+    print(f"Error: OpenPI import failed after installation: {e}")
+    OPENPI_AVAILABLE = False
 
 # --- RoboEval imports ---
 from roboeval.action_modes import JointPositionActionMode
@@ -144,6 +176,9 @@ _POLICY_CACHE = {}
 # ---------------------- OpenPI Helpers ----------------------
 def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):
     """Load Pi0 policy model for the given task."""
+    if not OPENPI_AVAILABLE:
+        raise RuntimeError("OpenPI is not available. Cannot load Pi0 model.")
+    
     cache_key = f"{task_name}:{ckpt_path}"
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
@@ -307,6 +342,10 @@ def run_pi0_inference(
     """
     try:
         progress(0, desc="Loading model and environment...")
+        
+        # Check if OpenPI is available
+        if not OPENPI_AVAILABLE:
+            return None, f"❌ **OpenPI not available**\n\nOpenPI is required for Pi0 model inference but is not installed. Please check the build logs for installation errors."
         
         # Validate task
         if task_name not in _ENV_CLASSES:

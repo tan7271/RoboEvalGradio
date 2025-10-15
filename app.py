@@ -60,14 +60,42 @@ def install_openpi():
             raise RuntimeError("GH_TOKEN environment variable not set")
         
         repo_url = f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git"
+        
+        # Try installing with --no-deps to bypass openpi-client dependency
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
-            f"git+{repo_url}", "--no-cache-dir"
+            f"git+{repo_url}", "--no-cache-dir", "--no-deps", "--force-reinstall"
         ], capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"OpenPI installation failed: {result.stderr}")
-            raise RuntimeError(f"Failed to install OpenPI: {result.stderr}")
+            # Try alternative approach - clone and install manually
+            print("Trying alternative installation method...")
+            try:
+                # Clone the repository
+                clone_result = subprocess.run([
+                    "git", "clone", "--depth", "1", 
+                    f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git",
+                    "/tmp/openpi"
+                ], capture_output=True, text=True)
+                
+                if clone_result.returncode != 0:
+                    raise RuntimeError(f"Failed to clone repository: {clone_result.stderr}")
+                
+                # Install in development mode with no dependencies
+                install_result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", 
+                    "-e", "/tmp/openpi", "--no-deps", "--force-reinstall"
+                ], capture_output=True, text=True)
+                
+                if install_result.returncode != 0:
+                    raise RuntimeError(f"Failed to install in dev mode: {install_result.stderr}")
+                
+                print("OpenPI installed successfully via alternative method")
+                return True
+                
+            except Exception as e:
+                raise RuntimeError(f"All installation methods failed: {e}")
         
         print("OpenPI installed successfully")
         return True

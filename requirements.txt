@@ -46,7 +46,7 @@ rich-click==1.8.9
 
 # Additional dependencies from environment
 h5py==3.14.0
-scipy==1.16.1
+scipy>=1.15.0,<1.16.0
 pandas==2.3.2
 tqdm==4.67.1
 requests==2.32.5

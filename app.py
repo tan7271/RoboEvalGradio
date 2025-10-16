@@ -47,6 +47,26 @@ def install_roboeval():
         print("RoboEval installed successfully")
         return True
 
+def install_lerobot():
+    """Install lerobot separately to avoid dependency conflicts."""
+    try:
+        import lerobot
+        print("lerobot already installed")
+        return True
+    except ImportError:
+        print("Installing lerobot...")
+        result = subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            "lerobot", "--no-cache-dir"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"lerobot installation failed: {result.stderr}")
+            return False
+        
+        print("lerobot installed successfully")
+        return True
+
 def install_openpi():
     """Install OpenPI from your forked repository using the GH_TOKEN."""
     try:
@@ -100,8 +120,9 @@ def install_openpi():
         print("OpenPI installed successfully")
         return True
 
-# Install both packages
+# Install packages
 install_roboeval()
+install_lerobot()
 install_openpi()
 
 # --- OpenPI (local inference) ---

@@ -123,6 +123,18 @@ def install_openpi():
 # Install packages
 install_roboeval()
 install_lerobot()
+
+# Upgrade safetensors to fix version conflict
+print("Upgrading safetensors to >=0.4.1...")
+result = subprocess.run([
+    sys.executable, "-m", "pip", "install", 
+    "safetensors>=0.4.1", "--upgrade", "--no-cache-dir"
+], capture_output=True, text=True)
+if result.returncode == 0:
+    print("safetensors upgraded successfully")
+else:
+    print(f"safetensors upgrade failed: {result.stderr}")
+
 install_openpi()
 
 # --- OpenPI (local inference) ---

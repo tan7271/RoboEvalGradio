@@ -21,173 +21,30 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
-# --- Install RoboEval and OpenPI at runtime ---
-def install_roboeval():
-    """Install RoboEval from GitHub using the GH_TOKEN."""
+# Note: Dependencies are installed via setup.sh before the app starts
+# This keeps the app code clean and separates installation logic
+
+# Run setup if dependencies aren't installed
+def check_and_install_dependencies():
+    """Check if dependencies are installed, run setup if not."""
     try:
         import roboeval
-        # Check if thirdparty directory exists
-        import roboeval.const as const
-        if not const.THIRD_PARTY_PATH.exists():
-            print("RoboEval installed but missing thirdparty submodules, reinstalling...")
-            raise ImportError("Missing thirdparty submodules")
-        print("RoboEval already installed")
-        return True
-    except ImportError:
-        print("Installing RoboEval with submodules...")
-        gh_token = os.environ.get("GH_TOKEN")
-        if not gh_token:
-            raise RuntimeError("GH_TOKEN environment variable not set")
-        
-        # Clone with submodules to /tmp
-        clone_dir = "/tmp/roboeval_install"
-        repo_url = f"https://{gh_token}@github.com/helen9975/RoboEval.git"
-        
-        # Remove old clone if exists
-        subprocess.run(["rm", "-rf", clone_dir], capture_output=True)
-        
-        # Clone with submodules
-        print("Cloning RoboEval repository with submodules...")
-        clone_result = subprocess.run([
-            "git", "clone", "--recurse-submodules",
-            repo_url, clone_dir
-        ], capture_output=True, text=True)
-        
-        if clone_result.returncode != 0:
-            print(f"Clone failed: {clone_result.stderr}")
-            raise RuntimeError(f"Failed to clone RoboEval: {clone_result.stderr}")
-        
-        # Install from local directory (not editable, so files are copied to site-packages)
-        print("Installing RoboEval from cloned repository...")
-        result = subprocess.run([
-            sys.executable, "-m", "pip", "install", 
-            clone_dir, "--no-cache-dir"
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"Installation failed: {result.stderr}")
-            raise RuntimeError(f"Failed to install RoboEval: {result.stderr}")
-        
-        # Copy thirdparty directory to the installed package location
-        print("Copying thirdparty submodules to site-packages...")
-        import site
-        import shutil
-        site_packages = site.getsitepackages()[0]
-        thirdparty_src = os.path.join(clone_dir, "thirdparty")
-        thirdparty_dst = os.path.join(site_packages, "thirdparty")
-        
-        if os.path.exists(thirdparty_src):
-            shutil.copytree(thirdparty_src, thirdparty_dst, dirs_exist_ok=True)
-            print(f"Copied thirdparty to {thirdparty_dst}")
-        else:
-            print("Warning: thirdparty directory not found in cloned repo")
-        
-        print("RoboEval installed successfully with submodules")
-        return True
-
-def install_lerobot():
-    """Install lerobot from specific git commit as required by OpenPI."""
-    try:
-        import lerobot.common
-        print("lerobot already installed")
-        return True
-    except ImportError:
-        print("Installing lerobot from git (specific commit required by OpenPI)...")
-        # OpenPI requires lerobot from this specific commit
-        lerobot_url = "git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
-        result = subprocess.run([
-            sys.executable, "-m", "pip", "install", 
-            lerobot_url, "--no-cache-dir"
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"lerobot installation failed: {result.stderr}")
-            return False
-        
-        print("lerobot installed successfully")
-        return True
-
-def install_openpi():
-    """Install OpenPI from your forked repository using the GH_TOKEN."""
-    try:
+        import lerobot
         import openpi
-        print("OpenPI already installed")
+        print("All dependencies already installed")
         return True
-    except ImportError:
-        print("Installing OpenPI from tan7271/OpenPiRoboEval...")
-        gh_token = os.environ.get("GH_TOKEN")
-        if not gh_token:
-            raise RuntimeError("GH_TOKEN environment variable not set")
-        
-        repo_url = f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git"
-        
-        # First install openpi-client from the subdirectory
-        print("Installing openpi-client...")
-        client_result = subprocess.run([
-            sys.executable, "-m", "pip", "install", 
-            f"git+{repo_url}#subdirectory=packages/openpi-client", "--no-cache-dir", "--no-deps"
-        ], capture_output=True, text=True)
-        
-        if client_result.returncode != 0:
-            print(f"openpi-client installation failed: {client_result.stderr}")
-        else:
-            print("openpi-client installed successfully")
-        
-        # Then install OpenPI with --no-deps since all dependencies are in requirements.txt
-        result = subprocess.run([
-            sys.executable, "-m", "pip", "install", 
-            f"git+{repo_url}", "--no-cache-dir", "--no-deps", "--force-reinstall"
-        ], capture_output=True, text=True)
-        
+    except ImportError as e:
+        print(f"Missing dependency: {e}")
+        print("Running setup script...")
+        import subprocess
+        result = subprocess.run(["bash", "setup.sh"], cwd=os.path.dirname(__file__))
         if result.returncode != 0:
-            print(f"OpenPI installation failed: {result.stderr}")
-            # Try alternative approach - clone and install manually
-            print("Trying alternative installation method...")
-            try:
-                # Clone the repository
-                clone_result = subprocess.run([
-                    "git", "clone", "--depth", "1", 
-                    f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git",
-                    "/tmp/openpi"
-                ], capture_output=True, text=True)
-                
-                if clone_result.returncode != 0:
-                    raise RuntimeError(f"Failed to clone repository: {clone_result.stderr}")
-                
-                # Install in development mode with no dependencies
-                install_result = subprocess.run([
-                    sys.executable, "-m", "pip", "install", 
-                    "-e", "/tmp/openpi", "--no-deps", "--force-reinstall"
-                ], capture_output=True, text=True)
-                
-                if install_result.returncode != 0:
-                    raise RuntimeError(f"Failed to install in dev mode: {install_result.stderr}")
-                
-                print("OpenPI installed successfully via alternative method")
-                return True
-                
-            except Exception as e:
-                raise RuntimeError(f"All installation methods failed: {e}")
-        
-        print("OpenPI installed successfully")
+            raise RuntimeError("Setup script failed")
         return True
 
-# Install packages
-install_roboeval()
-install_lerobot()
-
-# Upgrade safetensors to fix version conflict
-print("Upgrading safetensors to >=0.4.1...")
-result = subprocess.run([
-    sys.executable, "-m", "pip", "install", 
-    "safetensors>=0.4.1", "--upgrade", "--no-cache-dir"
-], capture_output=True, text=True)
-if result.returncode == 0:
-    print("safetensors upgraded successfully")
-else:
-    print(f"safetensors upgrade failed: {result.stderr}")
-
-install_openpi()
+import datetime
+print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+check_and_install_dependencies()
 
 # --- OpenPI (local inference) ---
 try:
@@ -284,7 +141,7 @@ _ENV_CLASSES = {
 DEFAULT_DEVICE = "cuda:0" if os.path.exists("/dev/nvidia0") else "cpu"
 DEFAULT_DOWNSAMPLE_RATE = 25
 DEFAULT_MAX_STEPS = 200
-DEFAULT_FPS = 5
+DEFAULT_FPS = 25
 
 # Check GPU availability and print diagnostics
 def check_gpu_status():

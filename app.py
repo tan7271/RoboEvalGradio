@@ -81,7 +81,19 @@ def install_openpi():
         
         repo_url = f"https://{gh_token}@github.com/tan7271/OpenPiRoboEval.git"
         
-        # Install with --no-deps since all dependencies are in requirements.txt
+        # First install openpi-client from the subdirectory
+        print("Installing openpi-client...")
+        client_result = subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            f"git+{repo_url}#subdirectory=packages/openpi-client", "--no-cache-dir", "--no-deps"
+        ], capture_output=True, text=True)
+        
+        if client_result.returncode != 0:
+            print(f"openpi-client installation failed: {client_result.stderr}")
+        else:
+            print("openpi-client installed successfully")
+        
+        # Then install OpenPI with --no-deps since all dependencies are in requirements.txt
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
             f"git+{repo_url}", "--no-cache-dir", "--no-deps", "--force-reinstall"

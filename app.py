@@ -57,16 +57,30 @@ def install_roboeval():
             print(f"Clone failed: {clone_result.stderr}")
             raise RuntimeError(f"Failed to clone RoboEval: {clone_result.stderr}")
         
-        # Install from local directory
+        # Install from local directory (not editable, so files are copied to site-packages)
         print("Installing RoboEval from cloned repository...")
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
-            "-e", clone_dir, "--no-cache-dir"
+            clone_dir, "--no-cache-dir"
         ], capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"Installation failed: {result.stderr}")
             raise RuntimeError(f"Failed to install RoboEval: {result.stderr}")
+        
+        # Copy thirdparty directory to the installed package location
+        print("Copying thirdparty submodules to site-packages...")
+        import site
+        import shutil
+        site_packages = site.getsitepackages()[0]
+        thirdparty_src = os.path.join(clone_dir, "thirdparty")
+        thirdparty_dst = os.path.join(site_packages, "thirdparty")
+        
+        if os.path.exists(thirdparty_src):
+            shutil.copytree(thirdparty_src, thirdparty_dst, dirs_exist_ok=True)
+            print(f"Copied thirdparty to {thirdparty_dst}")
+        else:
+            print("Warning: thirdparty directory not found in cloned repo")
         
         print("RoboEval installed successfully with submodules")
         return True

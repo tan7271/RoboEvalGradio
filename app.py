@@ -26,25 +26,49 @@ def install_roboeval():
     """Install RoboEval from GitHub using the GH_TOKEN."""
     try:
         import roboeval
+        # Check if thirdparty directory exists
+        import roboeval.const as const
+        if not const.THIRD_PARTY_PATH.exists():
+            print("RoboEval installed but missing thirdparty submodules, reinstalling...")
+            raise ImportError("Missing thirdparty submodules")
         print("RoboEval already installed")
         return True
     except ImportError:
-        print("Installing RoboEval...")
+        print("Installing RoboEval with submodules...")
         gh_token = os.environ.get("GH_TOKEN")
         if not gh_token:
             raise RuntimeError("GH_TOKEN environment variable not set")
         
+        # Clone with submodules to /tmp
+        clone_dir = "/tmp/roboeval_install"
         repo_url = f"https://{gh_token}@github.com/helen9975/RoboEval.git"
+        
+        # Remove old clone if exists
+        subprocess.run(["rm", "-rf", clone_dir], capture_output=True)
+        
+        # Clone with submodules
+        print("Cloning RoboEval repository with submodules...")
+        clone_result = subprocess.run([
+            "git", "clone", "--recurse-submodules",
+            repo_url, clone_dir
+        ], capture_output=True, text=True)
+        
+        if clone_result.returncode != 0:
+            print(f"Clone failed: {clone_result.stderr}")
+            raise RuntimeError(f"Failed to clone RoboEval: {clone_result.stderr}")
+        
+        # Install from local directory
+        print("Installing RoboEval from cloned repository...")
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
-            f"git+{repo_url}", "--no-cache-dir"
+            "-e", clone_dir, "--no-cache-dir"
         ], capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"Installation failed: {result.stderr}")
             raise RuntimeError(f"Failed to install RoboEval: {result.stderr}")
         
-        print("RoboEval installed successfully")
+        print("RoboEval installed successfully with submodules")
         return True
 
 def install_lerobot():

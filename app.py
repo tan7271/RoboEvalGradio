@@ -286,6 +286,46 @@ DEFAULT_DOWNSAMPLE_RATE = 25
 DEFAULT_MAX_STEPS = 200
 DEFAULT_FPS = 5
 
+# Check GPU availability and print diagnostics
+def check_gpu_status():
+    """Check and print GPU availability."""
+    import jax
+    print("\n" + "="*60)
+    print("GPU DIAGNOSTICS")
+    print("="*60)
+    
+    # Check JAX devices
+    devices = jax.devices()
+    print(f"JAX devices: {devices}")
+    print(f"JAX default backend: {jax.default_backend()}")
+    
+    # Check if GPU is available
+    gpu_devices = [d for d in devices if d.platform == 'gpu']
+    if gpu_devices:
+        print(f"✅ GPU available! Found {len(gpu_devices)} GPU device(s)")
+        for i, device in enumerate(gpu_devices):
+            print(f"   GPU {i}: {device}")
+    else:
+        print(f"❌ No GPU found. Running on: {jax.default_backend()}")
+    
+    # Check CUDA
+    try:
+        import torch
+        if torch.cuda.is_available():
+            print(f"✅ PyTorch CUDA available: {torch.cuda.get_device_name(0)}")
+            print(f"   CUDA version: {torch.version.cuda}")
+            print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+        else:
+            print("❌ PyTorch CUDA not available")
+    except Exception as e:
+        print(f"⚠️  Could not check PyTorch CUDA: {e}")
+    
+    print("="*60 + "\n")
+    return len(gpu_devices) > 0
+
+# Run GPU check at startup
+GPU_AVAILABLE = check_gpu_status()
+
 # Global policy cache to avoid reloading
 _POLICY_CACHE = {}
 
@@ -478,9 +518,19 @@ def run_pi0_inference(
     try:
         progress(0, desc="Loading model and environment...")
         
+        # Check GPU status
+        import jax
+        gpu_info = ""
+        devices = jax.devices()
+        gpu_devices = [d for d in devices if d.platform == 'gpu']
+        if gpu_devices:
+            gpu_info = f"🎮 **GPU**: {len(gpu_devices)} GPU(s) detected - {gpu_devices[0]}\n"
+        else:
+            gpu_info = f"⚠️ **GPU**: Not detected! Running on {jax.default_backend()}\n"
+        
         # Check if OpenPI is available
         if not OPENPI_AVAILABLE:
-            return None, f"❌ **OpenPI not available**\n\nOpenPI is required for Pi0 model inference but is not installed. Please check the build logs for installation errors."
+            return None, gpu_info + f"❌ **OpenPI not available**\n\nOpenPI is required for Pi0 model inference but is not installed. Please check the build logs for installation errors."
         
         # Validate task
         if task_name not in _ENV_CLASSES:
@@ -511,7 +561,7 @@ def run_pi0_inference(
         
         progress(1.0, desc="Complete!")
         
-        status = f"✅ **Inference Complete!**\n\n"
+        status = gpu_info + f"✅ **Inference Complete!**\n\n"
         status += f"- **Task**: {task_name}\n"
         status += f"- **Steps**: {stats['steps']}\n"
         status += f"- **Success Signal**: {stats['success_signal']}\n"
@@ -521,7 +571,30 @@ def run_pi0_inference(
         
     except Exception as e:
         import traceback
-        error_msg = f"❌ **Error during inference:**\n\n```\n{str(e)}\n\n{traceback.format_exc()}\n```"
+        
+        # Check if it's an out of memory error
+        if "Out of memory" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            error_msg = f"""❌ **Out of Memory Error**
+
+The model is too large for the current hardware configuration.
+
+**Pi0 Model Requirements:**
+- Minimum: 8 GB GPU memory
+- Recommended: 16+ GB GPU memory
+
+**Solutions:**
+1. **Upgrade this Space to use a GPU** (Settings → Hardware → T4 small or better)
+2. Use a smaller/quantized checkpoint
+3. Contact the Space owner to enable GPU hardware
+
+**Technical Details:**
+```
+{str(e)}
+```
+"""
+        else:
+            error_msg = f"❌ **Error during inference:**\n\n```\n{str(e)}\n\n{traceback.format_exc()}\n```"
+        
         return None, error_msg
 
 
@@ -535,7 +608,10 @@ def create_gradio_interface():
         
         Run Pi0 bimanual manipulation policy on various robot tasks and view the execution video.
         
-        **Note**: This Space uses a private checkpoint. Make sure you've configured access properly.
+        ⚠️ **Hardware Requirements:** This Space requires a GPU with at least 8GB memory.
+        If you see "Out of Memory" errors, upgrade the Space hardware in Settings → Hardware → T4 small.
+        
+        **Note**: You can use checkpoints from Hugging Face Hub (e.g., `tan7271/pi0_CubeHandover_ckpt`) or Google Cloud Storage (`gs://...`).
         """)
         
         with gr.Row():

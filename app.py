@@ -252,10 +252,29 @@ DEFAULT_FPS = 5
 _POLICY_CACHE = {}
 
 # ---------------------- OpenPI Helpers ----------------------
+def download_from_hf_hub(repo_id: str) -> str:
+    """Download checkpoint from Hugging Face Hub to local cache."""
+    from huggingface_hub import snapshot_download
+    
+    print(f"Downloading checkpoint from Hugging Face Hub: {repo_id}")
+    local_path = snapshot_download(
+        repo_id=repo_id,
+        repo_type="model",
+        cache_dir=os.path.expanduser("~/.cache/openpi/hf_hub"),
+    )
+    print(f"Checkpoint downloaded to: {local_path}")
+    return local_path
+
 def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):
     """Load Pi0 policy model for the given task."""
     if not OPENPI_AVAILABLE:
         raise RuntimeError("OpenPI is not available. Cannot load Pi0 model.")
+    
+    # Handle Hugging Face Hub paths
+    if ckpt_path.startswith("hf://") or (not ckpt_path.startswith("gs://") and not os.path.isabs(ckpt_path)):
+        # Assume it's a HF Hub repo ID
+        repo_id = ckpt_path.replace("hf://", "")
+        ckpt_path = download_from_hf_hub(repo_id)
     
     cache_key = f"{task_name}:{ckpt_path}"
     if cache_key in _POLICY_CACHE:

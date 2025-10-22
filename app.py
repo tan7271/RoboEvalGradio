@@ -48,16 +48,18 @@ def install_roboeval():
         return True
 
 def install_lerobot():
-    """Install lerobot separately to avoid dependency conflicts."""
+    """Install lerobot from specific git commit as required by OpenPI."""
     try:
-        import lerobot
+        import lerobot.common
         print("lerobot already installed")
         return True
     except ImportError:
-        print("Installing lerobot...")
+        print("Installing lerobot from git (specific commit required by OpenPI)...")
+        # OpenPI requires lerobot from this specific commit
+        lerobot_url = "git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5"
         result = subprocess.run([
             sys.executable, "-m", "pip", "install", 
-            "lerobot", "--no-cache-dir"
+            lerobot_url, "--no-cache-dir"
         ], capture_output=True, text=True)
         
         if result.returncode != 0:

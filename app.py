@@ -187,41 +187,59 @@ GPU_AVAILABLE = check_gpu_status()
 _POLICY_CACHE = {}
 
 # ---------------------- OpenPI Helpers ----------------------
-def download_from_hf_hub(repo_id: str) -> str:
-    """Download checkpoint from Hugging Face Hub to local cache."""
-    from huggingface_hub import snapshot_download
+def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
+    """
+    Get checkpoint path - either from local path or download from HF Hub.
     
-    print(f"Downloading checkpoint from Hugging Face Hub: {repo_id}")
+    Args:
+        task_name: RoboEval task name (e.g., 'CubeHandover')
+        ckpt_path: Optional local checkpoint path to override HF download
+    
+    Returns:
+        Path to checkpoint directory
+    """
+    if ckpt_path is not None and ckpt_path != "":
+        return ckpt_path
+    
+    # Extract base task name for HF subdirectory mapping
+    # Map task name to HF subdirectory (format: {TaskName}_testing)
+    hf_subdirectory = f"{task_name}_testing/2999"
+    
+    # Download from HF Hub with caching
+    from huggingface_hub import snapshot_download
+    repo_id = "tan7271/pi0_base_checkpoints"
+    cache_dir = os.path.expanduser("~/.cache/roboeval/pi0_checkpoints")
+    
+    print(f"Downloading checkpoint for {task_name} from HF Hub...")
     local_path = snapshot_download(
         repo_id=repo_id,
-        repo_type="model",
-        cache_dir=os.path.expanduser("~/.cache/openpi/hf_hub"),
+        allow_patterns=f"{hf_subdirectory}/**",
+        cache_dir=cache_dir,
     )
-    print(f"Checkpoint downloaded to: {local_path}")
-    return local_path
+    
+    # Return path to specific task subdirectory
+    return os.path.join(local_path, hf_subdirectory)
+
 
 def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):
     """Load Pi0 policy model for the given task."""
     if not OPENPI_AVAILABLE:
         raise RuntimeError("OpenPI is not available. Cannot load Pi0 model.")
     
-    # Handle Hugging Face Hub paths
-    if ckpt_path.startswith("hf://") or (not ckpt_path.startswith("gs://") and not os.path.isabs(ckpt_path)):
-        # Assume it's a HF Hub repo ID
-        repo_id = ckpt_path.replace("hf://", "")
-        ckpt_path = download_from_hf_hub(repo_id)
+    # Get checkpoint path (download from HF if needed)
+    checkpoint_path = get_checkpoint_path(task_name, ckpt_path)
     
-    cache_key = f"{task_name}:{ckpt_path}"
+    cache_key = f"{task_name}:{checkpoint_path}"
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
     
     cfg = _config.get_config("pi0_base_bimanual_droid_finetune")
     bimanual_assets = _config.AssetsConfig(
-        assets_dir=f"{ckpt_path}/assets/",
-        asset_id=f"{task_name}",
+        assets_dir=f"{checkpoint_path}/assets/",
+        asset_id=f"tan7271/{task_name}",
     )
     cfg = dataclasses.replace(cfg, data=dataclasses.replace(cfg.data, assets=bimanual_assets))
-    policy = _policy_config.create_trained_policy(cfg, ckpt_path)
+    policy = _policy_config.create_trained_policy(cfg, checkpoint_path)
     
     _POLICY_CACHE[cache_key] = policy
     return policy
@@ -468,7 +486,7 @@ def create_gradio_interface():
         ⚠️ **Hardware Requirements:** This Space requires a GPU with at least 8GB memory.
         If you see "Out of Memory" errors, upgrade the Space hardware in Settings → Hardware → T4 small.
         
-        **Note**: You can use checkpoints from Hugging Face Hub (e.g., `tan7271/pi0_CubeHandover_ckpt`) or Google Cloud Storage (`gs://...`).
+        **Note**: Leave checkpoint path empty to automatically download from HuggingFace Hub (`tan7271/pi0_base_checkpoints`), or provide a custom local path.
         """)
         
         with gr.Row():
@@ -483,10 +501,10 @@ def create_gradio_interface():
                 )
                 
                 checkpoint_input = gr.Textbox(
-                    label="Checkpoint Path",
-                    placeholder="/path/to/checkpoint or huggingface-model-id",
+                    label="Checkpoint Path (Optional)",
+                    placeholder="Leave empty to auto-download from HF Hub",
                     value="",
-                    info="Path to Pi0 model checkpoint directory"
+                    info="Optional: Path to custom Pi0 checkpoint. Leave empty to auto-download for selected task."
                 )
                 
                 instruction_input = gr.Textbox(

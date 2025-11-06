@@ -196,11 +196,19 @@ def clear_gpu_memory():
     # Force JAX to clear GPU memory
     try:
         import jax
-        # Clear JAX cache
-        jax.clear_backends()
+        import gc
+        
+        # Clear JAX compilation caches (for JAX >= 0.4.36)
+        try:
+            jax.clear_caches()
+        except AttributeError:
+            # Fallback for older JAX versions
+            try:
+                jax.clear_backends()
+            except AttributeError:
+                pass  # Neither method available, rely on gc
         
         # Force Python garbage collection
-        import gc
         gc.collect()
         
         print("GPU memory cleared successfully")

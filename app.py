@@ -186,6 +186,27 @@ GPU_AVAILABLE = check_gpu_status()
 # Global policy cache to avoid reloading
 _POLICY_CACHE = {}
 
+def clear_gpu_memory():
+    """Clear GPU memory and policy cache."""
+    global _POLICY_CACHE
+    
+    # Clear the policy cache
+    _POLICY_CACHE.clear()
+    
+    # Force JAX to clear GPU memory
+    try:
+        import jax
+        # Clear JAX cache
+        jax.clear_backends()
+        
+        # Force Python garbage collection
+        import gc
+        gc.collect()
+        
+        print("GPU memory cleared successfully")
+    except Exception as e:
+        print(f"Warning: Could not fully clear GPU memory: {e}")
+
 # ---------------------- OpenPI Helpers ----------------------
 def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
     """
@@ -232,6 +253,11 @@ def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):
     cache_key = f"{task_name}:{checkpoint_path}"
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
+    
+    # Clear old policies from cache to free GPU memory for new task
+    if len(_POLICY_CACHE) > 0:
+        print(f"Clearing {len(_POLICY_CACHE)} cached model(s) to free GPU memory...")
+        clear_gpu_memory()
     
     cfg = _config.get_config("pi0_base_bimanual_droid_finetune")
     bimanual_assets = _config.AssetsConfig(
@@ -433,6 +459,10 @@ def run_pi0_inference(
         
         # Cleanup
         env.close()
+        
+        # Clear GPU memory after inference to prevent OOM on next run
+        import gc
+        gc.collect()
         
         progress(1.0, desc="Complete!")
         

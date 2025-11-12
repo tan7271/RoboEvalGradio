@@ -702,7 +702,7 @@ def create_gradio_interface():
 
                 default_model_key = next(iter(MODEL_REGISTRY.keys()))
                 model_dropdown = gr.Dropdown(
-                    choices=[(key, definition.label) for key, definition in MODEL_REGISTRY.items()],
+                    choices=[(definition.label, key) for key, definition in MODEL_REGISTRY.items()],
                     value=default_model_key,
                     label="Select Model",
                     info="Choose which policy backend to use"

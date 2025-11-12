@@ -11,7 +11,7 @@ import copy
 import numpy as np
 import dataclasses
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 import gradio as gr
 import subprocess
 import sys
@@ -218,36 +218,107 @@ def clear_gpu_memory():
 # ---------------------- OpenPI Helpers ----------------------
 def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
     """
-    Get checkpoint path - either from local path or download from HF Hub.
-    
-    Args:
-        task_name: RoboEval task name (e.g., 'CubeHandover')
-        ckpt_path: Optional local checkpoint path to override HF download
-    
-    Returns:
-        Path to checkpoint directory
+    Return a local path to the checkpoint for the given task. If `ckpt_path` is provided,
+    it is returned verbatim. Otherwise, download only the files under:
+        repo: tan7271/pi0_base_checkpoints (model repo)
+        subdir: {task_name}_testing/{step}/
+    We prefer step=2999 if present, else the numerically largest available step.
+
+    This version avoids snapshot_download entirely to dodge the "0 files" issue.
     """
-    if ckpt_path is not None and ckpt_path != "":
+    if ckpt_path:
         return ckpt_path
-    
-    # Extract base task name for HF subdirectory mapping
-    # Map task name to HF subdirectory (format: {TaskName}_testing)
-    hf_subdirectory = f"{task_name}_testing/2999"
-    
-    # Download from HF Hub with caching
-    from huggingface_hub import snapshot_download
+
+    from huggingface_hub import HfApi, hf_hub_download
+
     repo_id = "tan7271/pi0_base_checkpoints"
+    revision = "main"
+    base_dir = f"{task_name}_testing"
     cache_dir = os.path.expanduser("~/.cache/roboeval/pi0_checkpoints")
-    
-    print(f"Downloading checkpoint for {task_name} from HF Hub...")
-    local_path = snapshot_download(
-        repo_id=repo_id,
-        allow_patterns=f"{hf_subdirectory}/**",
-        cache_dir=cache_dir,
+
+    api = HfApi()
+    try:
+        all_files: List[str] = api.list_repo_files(
+            repo_id=repo_id, revision=revision, repo_type="model"
+        )
+    except Exception as e:
+        raise RuntimeError(f"Could not list files for {repo_id}@{revision}: {e}")
+
+    # Find available numeric steps under {task}_testing/
+    steps = sorted({
+        int(p.split("/")[1])
+        for p in all_files
+        if p.startswith(base_dir + "/") and len(p.split("/")) >= 3 and p.split("/")[1].isdigit()
+    })
+    if not steps:
+        nearby = [p for p in all_files if base_dir in p][:10]
+        raise FileNotFoundError(
+            f"No files found under '{base_dir}/' in {repo_id}@{revision}. "
+            f"Example paths I do see: {nearby}"
+        )
+
+    chosen_step = 2999 if 2999 in steps else steps[-1]
+    subdir = f"{base_dir}/{chosen_step}"
+
+    print(
+        f"Downloading checkpoint for {task_name} directly via hf_hub_download "
+        f"(repo={repo_id}, subdir={subdir})..."
     )
-    
-    # Return path to specific task subdirectory
-    return os.path.join(local_path, hf_subdirectory)
+
+    # We only need these parts; if you want rollouts, drop the filter below.
+    needed_roots = (
+        f"{subdir}/_CHECKPOINT_METADATA",
+        f"{subdir}/assets/",
+        f"{subdir}/params/",
+        f"{subdir}/train_state/",
+    )
+    wanted = [
+        p for p in all_files
+        if p == f"{subdir}/_CHECKPOINT_METADATA"
+        or any(p.startswith(root) for root in needed_roots[1:])
+    ]
+
+    # If the filtered list is empty (unexpected), grab the entire subdir.
+    if not wanted:
+        wanted = [p for p in all_files if p.startswith(subdir + "/")]
+        if not wanted:
+            raise FileNotFoundError(
+                f"Repo listing shows no files under '{subdir}/'. "
+                f"Steps seen: {steps}"
+            )
+
+    manual_root = os.path.join(cache_dir, "manual")
+    os.makedirs(manual_root, exist_ok=True)
+
+    # Download every file we want into a local mirror of the repo layout.
+    for relpath in wanted:
+        hf_hub_download(
+            repo_id=repo_id,
+            filename=relpath,
+            revision=revision,
+            repo_type="model",
+            local_dir=manual_root,
+            local_dir_use_symlinks=True,  # saves space on shared filesystems
+        )
+
+    manual_ckpt_dir = os.path.join(manual_root, subdir)
+
+    # Basic sanity: ensure the directory exists and isn't empty
+    def _nonempty_dir(path: str) -> bool:
+        return os.path.isdir(path) and any(True for _ in os.scandir(path))
+
+    if not _nonempty_dir(manual_ckpt_dir):
+        try:
+            siblings = [e.name for e in os.scandir(os.path.dirname(manual_ckpt_dir))]
+        except Exception:
+            siblings = []
+        raise FileNotFoundError(
+            f"Downloaded files, but '{manual_ckpt_dir}' is missing/empty.\n"
+            f"Siblings present: {siblings}\n"
+            f"(repo_id={repo_id}, subdir={subdir})"
+        )
+
+    return manual_ckpt_dir
 
 
 def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):

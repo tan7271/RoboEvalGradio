@@ -11,7 +11,7 @@ import copy
 import numpy as np
 import dataclasses
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import gradio as gr
 import subprocess
 import sys
@@ -386,6 +386,25 @@ def _clip_to_space(env, action: np.ndarray) -> np.ndarray:
     return np.clip(action, env.action_space.low, env.action_space.high)
 
 
+@dataclasses.dataclass
+class InferenceRequest:
+    """Normalized payload for invoking model backends from the UI."""
+    task_name: str
+    checkpoint_path: str
+    custom_instruction: Optional[str]
+    max_steps: int
+    fps: int
+    progress: gr.Progress
+
+
+@dataclasses.dataclass
+class ModelDefinition:
+    """Metadata and execution hook for a model option."""
+    label: str
+    description: str
+    run_inference: Callable[[InferenceRequest], Tuple[Optional[str], str]]
+
+
 # ---------------------- Video Helpers ----------------------
 def save_frames_to_video(frames, output_path: str, fps: int = 25) -> str:
     """Save rollout frames to a video file."""
@@ -481,14 +500,7 @@ def run_inference_loop(
 
 
 # ---------------------- Main Inference Function ----------------------
-def run_pi0_inference(
-    task_name: str,
-    checkpoint_path: str,
-    custom_instruction: Optional[str] = None,
-    max_steps: int = DEFAULT_MAX_STEPS,
-    fps: int = DEFAULT_FPS,
-    progress=gr.Progress()
-) -> Tuple[str, str]:
+def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
     """
     Main function to run Pi0 inference.
     
@@ -496,6 +508,13 @@ def run_pi0_inference(
         Tuple of (video_path, status_message)
     """
     try:
+        task_name = request.task_name
+        checkpoint_path = request.checkpoint_path
+        custom_instruction = request.custom_instruction
+        max_steps = int(request.max_steps)
+        fps = int(request.fps)
+        progress = request.progress
+
         progress(0, desc="Loading model and environment...")
         
         # Check GPU status
@@ -582,25 +601,114 @@ The model is too large for the current hardware configuration.
         return None, error_msg
 
 
+def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
+    """
+    Placeholder for OpenVLA backend integration.
+    
+    Currently returns a descriptive message until the OpenVLA runtime is wired up.
+    """
+    status = (
+        "⚠️ **OpenVLA integration is not yet available in this Space.**\n\n"
+        "The frontend is model-aware, so you can wire in the backend by implementing "
+        "`run_openvla_inference` to load checkpoints and execute rollouts.\n\n"
+        "Requested configuration:\n"
+        f"- Task: {request.task_name}\n"
+        f"- Checkpoint: {request.checkpoint_path or 'auto'}\n"
+        f"- Steps: {request.max_steps}\n"
+        f"- FPS: {request.fps}\n"
+    )
+    return None, status
+
+
+# Registry of supported models (UI order follows this definition)
+MODEL_REGISTRY: Dict[str, ModelDefinition] = {
+    "pi0_openpi": ModelDefinition(
+        label="Pi0 Base (OpenPI)",
+        description=(
+            "Runs the Pi0 bimanual policy using the OpenPI runtime. "
+            "Supports all RoboEval tasks and will automatically fetch checkpoints from "
+            "`tan7271/pi0_base_checkpoints` when no custom path is provided."
+        ),
+        run_inference=run_pi0_inference,
+    ),
+    "openvla": ModelDefinition(
+        label="OpenVLA (Coming Soon)",
+        description=(
+            "Placeholder entry for integrating the OpenVLA policy. "
+            "Select this option once the backend logic in `run_openvla_inference` is implemented."
+        ),
+        run_inference=run_openvla_inference,
+    ),
+}
+
+
+def _format_model_info(model_key: str) -> str:
+    model = MODEL_REGISTRY.get(model_key)
+    if not model:
+        return f"❓ Unknown model selection: `{model_key}`"
+    return f"**{model.label}**\n\n{model.description}"
+
+
+def run_model_inference(
+    model_key: str,
+    task_name: str,
+    checkpoint_path: str,
+    custom_instruction: Optional[str],
+    max_steps: float,
+    fps: float,
+    progress=gr.Progress(),
+) -> Tuple[Optional[str], str]:
+    """Dispatch inference based on the selected model."""
+    model = MODEL_REGISTRY.get(model_key)
+    if not model:
+        return None, f"❌ Unknown model selection: {model_key}"
+
+    request = InferenceRequest(
+        task_name=task_name,
+        checkpoint_path=checkpoint_path or "",
+        custom_instruction=custom_instruction or None,
+        max_steps=int(max_steps),
+        fps=int(fps),
+        progress=progress,
+    )
+
+    return model.run_inference(request)
+
+
+# Helper for reactive UI updates
+def update_model_description(model_key: str) -> str:
+    return _format_model_info(model_key)
+
+
 # ---------------------- Gradio Interface ----------------------
 def create_gradio_interface():
     """Create and return the Gradio interface."""
     
-    with gr.Blocks(title="Pi0 Inference on RoboEval Tasks") as demo:
+    with gr.Blocks(title="Robot Policy Inference on RoboEval Tasks") as demo:
         gr.Markdown("""
-        # 🤖 Pi0 Model Inference on RoboEval Tasks
+        # 🤖 Robot Policy Inference on RoboEval Tasks
         
-        Run Pi0 bimanual manipulation policy on various robot tasks and view the execution video.
+        Choose a supported model backend (starting with Pi0 via OpenPI) and run it on RoboEval tasks to watch the generated execution video.
         
         ⚠️ **Hardware Requirements:** This Space requires a GPU with at least 8GB memory.
         If you see "Out of Memory" errors, upgrade the Space hardware in Settings → Hardware → T4 small.
         
-        **Note**: Leave checkpoint path empty to automatically download from HuggingFace Hub (`tan7271/pi0_base_checkpoints`), or provide a custom local path.
+        **Note**: Leave the checkpoint path empty to use the model's default retrieval logic (Pi0 fetches from `tan7271/pi0_base_checkpoints`), or provide a custom local path.
         """)
         
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### Configuration")
+
+                default_model_key = next(iter(MODEL_REGISTRY.keys()))
+                model_dropdown = gr.Dropdown(
+                    choices=[(key, definition.label) for key, definition in MODEL_REGISTRY.items()],
+                    value=default_model_key,
+                    label="Select Model",
+                    info="Choose which policy backend to use"
+                )
+
+                model_info = gr.Markdown(_format_model_info(default_model_key))
                 
                 task_dropdown = gr.Dropdown(
                     choices=sorted(_ENV_CLASSES.keys()),
@@ -613,7 +721,7 @@ def create_gradio_interface():
                     label="Checkpoint Path (Optional)",
                     placeholder="Leave empty to auto-download from HF Hub",
                     value="",
-                    info="Optional: Path to custom Pi0 checkpoint. Leave empty to auto-download for selected task."
+                    info="Optional: Provide a custom checkpoint path. Leave empty to use the selected model's default."
                 )
                 
                 instruction_input = gr.Textbox(
@@ -648,10 +756,18 @@ def create_gradio_interface():
                 status_output = gr.Markdown("*Click 'Run Inference' to start...*")
                 video_output = gr.Video(label="Execution Video", interactive=False)
         
+        model_dropdown.change(
+            fn=update_model_description,
+            inputs=model_dropdown,
+            outputs=model_info,
+            queue=False,
+        )
+
         # Event handler
         run_button.click(
-            fn=run_pi0_inference,
+            fn=run_model_inference,
             inputs=[
+                model_dropdown,
                 task_dropdown,
                 checkpoint_input,
                 instruction_input,

@@ -79,11 +79,10 @@ msgpack>=1.0.5
 tree>=0.2.4
 websockets>=11.0
 
-# OpenVLA dependencies
-openvla==0.0.3
+# OpenVLA dependencies (core packages needed for OpenVLA)
 accelerate>=1.11.0
 peft>=0.11.1
 timm>=0.9.10
 
-# Install lerobot separately to avoid conflicts
-# lerobot will be installed via git in app.py
+# Install lerobot and openvla separately to avoid conflicts
+# lerobot and openvla will be installed via git in setup.sh

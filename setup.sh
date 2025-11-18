@@ -46,5 +46,10 @@ echo "openpi-client installed successfully"
 pip install git+https://${GH_TOKEN}@github.com/tan7271/OpenPiRoboEval.git --no-cache-dir --no-deps --force-reinstall
 echo "OpenPI installed successfully"
 
+# Install OpenVLA from source
+echo "Installing OpenVLA from openvla/openvla..."
+pip install git+https://github.com/openvla/openvla.git --no-cache-dir
+echo "OpenVLA installed successfully"
+
 echo "===== All dependencies installed ====="
 

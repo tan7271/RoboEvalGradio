@@ -632,10 +632,11 @@ MODEL_REGISTRY: Dict[str, ModelDefinition] = {
         run_inference=run_pi0_inference,
     ),
     "openvla": ModelDefinition(
-        label="OpenVLA (Coming Soon)",
+        label="OpenVLA",
         description=(
-            "Placeholder entry for integrating the OpenVLA policy. "
-            "Select this option once the backend logic in `run_openvla_inference` is implemented."
+            "Runs the OpenVLA (Open Vision-Language-Action) policy. "
+            "OpenVLA is a vision-language-action model for robot manipulation tasks. "
+            "Provide a checkpoint path or leave empty to use default OpenVLA checkpoints."
         ),
         run_inference=run_openvla_inference,
     ),

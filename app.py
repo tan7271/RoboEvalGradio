@@ -27,29 +27,73 @@ os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 # Run setup if dependencies aren't installed
 def check_and_install_dependencies():
     """Check if dependencies are installed, run setup if not."""
+    dependencies_ok = True
+    
     try:
         import roboeval
         print("✓ roboeval imported")
     except ImportError as e:
         print(f"✗ roboeval import failed: {e}")
+        dependencies_ok = False
     
     try:
         import lerobot
         print("✓ lerobot imported")
     except ImportError as e:
         print(f"✗ lerobot import failed: {e}")
+        dependencies_ok = False
     
     try:
         import openpi
         print("✓ openpi imported")
     except ImportError as e:
         print(f"✗ openpi import failed: {e}")
+        dependencies_ok = False
     
-    try:
-        import openvla
-        print("✓ openvla imported")
-    except ImportError as e:
-        print(f"✗ openvla import failed: {e}")
+    # If core dependencies are missing, run setup
+    if not dependencies_ok:
+        print("\n" + "="*60)
+        print("INSTALLING MISSING DEPENDENCIES")
+        print("="*60)
+        print("Running setup.sh to install roboeval, lerobot, and openpi...")
+        
+        import subprocess
+        import os
+        
+        setup_path = os.path.join(os.path.dirname(__file__), "setup.sh")
+        result = subprocess.run(
+            ["bash", setup_path],
+            cwd=os.path.dirname(__file__),
+            capture_output=False,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            print(f"Setup script failed with return code {result.returncode}")
+            raise RuntimeError("Setup script failed to install dependencies")
+        
+        print("\n" + "="*60)
+        print("SETUP COMPLETE - Verifying installations...")
+        print("="*60)
+        
+        # Verify installations
+        try:
+            import roboeval
+            print("✓ roboeval installed successfully")
+        except ImportError as e:
+            print(f"✗ roboeval still not available: {e}")
+            
+        try:
+            import lerobot
+            print("✓ lerobot installed successfully")
+        except ImportError as e:
+            print(f"✗ lerobot still not available: {e}")
+            
+        try:
+            import openpi
+            print("✓ openpi installed successfully")
+        except ImportError as e:
+            print(f"✗ openpi still not available: {e}")
     
     return True
 

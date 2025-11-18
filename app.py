@@ -29,18 +29,29 @@ def check_and_install_dependencies():
     """Check if dependencies are installed, run setup if not."""
     try:
         import roboeval
-        import lerobot
-        import openpi
-        print("All dependencies already installed")
-        return True
+        print("✓ roboeval imported")
     except ImportError as e:
-        print(f"Missing dependency: {e}")
-        print("Running setup script...")
-        import subprocess
-        result = subprocess.run(["bash", "setup.sh"], cwd=os.path.dirname(__file__))
-        if result.returncode != 0:
-            raise RuntimeError("Setup script failed")
-        return True
+        print(f"✗ roboeval import failed: {e}")
+    
+    try:
+        import lerobot
+        print("✓ lerobot imported")
+    except ImportError as e:
+        print(f"✗ lerobot import failed: {e}")
+    
+    try:
+        import openpi
+        print("✓ openpi imported")
+    except ImportError as e:
+        print(f"✗ openpi import failed: {e}")
+    
+    try:
+        import openvla
+        print("✓ openvla imported")
+    except ImportError as e:
+        print(f"✗ openvla import failed: {e}")
+    
+    return True
 
 import datetime
 print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")

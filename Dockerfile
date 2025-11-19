@@ -82,7 +82,8 @@ ENV HOME=/home/user \
     SYSTEM=spaces \
     MUJOCO_GL=egl \
     PYOPENGL_PLATFORM=egl \
-    XDG_RUNTIME_DIR=/tmp
+    XDG_RUNTIME_DIR=/tmp \
+    OMP_NUM_THREADS=1
 
 # Set working directory
 WORKDIR $HOME/app

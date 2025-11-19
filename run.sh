@@ -2,6 +2,20 @@
 # Launch script for Docker container
 # Runs the Gradio app in the base conda environment
 
+# Fix OMP_NUM_THREADS if it has invalid format (e.g., "7500m")
+# numexpr requires it to be a valid integer
+if [ -n "$OMP_NUM_THREADS" ]; then
+    # Remove any non-numeric suffix (like 'm', 'k', etc.)
+    OMP_NUM_THREADS_CLEAN=$(echo "$OMP_NUM_THREADS" | sed 's/[^0-9].*$//')
+    if [ -n "$OMP_NUM_THREADS_CLEAN" ] && [ "$OMP_NUM_THREADS_CLEAN" -gt 0 ] 2>/dev/null; then
+        export OMP_NUM_THREADS=$OMP_NUM_THREADS_CLEAN
+    else
+        export OMP_NUM_THREADS=1
+    fi
+else
+    export OMP_NUM_THREADS=1
+fi
+
 # Source conda if available
 if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
     source /opt/conda/etc/profile.d/conda.sh

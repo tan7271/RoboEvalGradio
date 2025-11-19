@@ -1,0 +1,42 @@
+# OpenVLA environment dependencies
+# PyTorch 2.2.0 for OpenVLA (installed separately in setup.sh with CUDA 12.1 index)
+# torch==2.2.0
+# torchvision==0.17.0
+# torchaudio==2.2.0
+
+# Transformers and OpenVLA dependencies
+transformers==4.40.1
+accelerate>=1.11.0
+peft>=0.11.1
+timm>=0.9.10
+
+# Hugging Face
+huggingface-hub>=0.36.0
+tokenizers>=0.19.1
+datasets==3.6.0
+
+# Core utilities
+numpy>=1.22.4,<2.0.0
+pillow>=11.0.0
+tqdm==4.67.1
+requests==2.32.5
+packaging==25.0
+
+# Video/media processing
+moviepy==1.0.3
+imageio-ffmpeg==0.6.0
+opencv-python-headless==4.11.0.86
+
+# MuJoCo and robotics
+mujoco==3.3.3
+dm-control==1.0.31
+mujoco-utils==0.0.6
+gymnasium==0.29.1
+
+# Additional utilities
+pyyaml==6.0.2
+pyquaternion==0.9.9
+scipy==1.16.1
+pandas==2.3.2
+h5py==3.14.0
+

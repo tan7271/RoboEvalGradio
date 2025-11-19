@@ -1,444 +1,148 @@
 """
-Hugging Face Space for Pi0 Inference on RoboEval Tasks
+Hugging Face Space for Robot Policy Inference on RoboEval Tasks
 
-This Gradio app allows users to run Pi0 model inference on bimanual robot tasks
-and view the resulting execution videos.
+This Gradio app allows users to run model inference (OpenPI, OpenVLA) on bimanual robot tasks
+and view the resulting execution videos. Models run in isolated conda environments.
 """
 
 import os
-import tempfile
-import copy
-import numpy as np
+import json
+import atexit
 import dataclasses
-from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from dataclasses import asdict
+from typing import Callable, Dict, Optional, Tuple
 import gradio as gr
 import subprocess
 import sys
+import datetime
 
-# --- Headless defaults (set BEFORE mujoco/roboeval imports) ---
+# --- Headless defaults ---
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
-# Note: Dependencies are installed via setup.sh before the app starts
-# This keeps the app code clean and separates installation logic
+# Note: Model dependencies are installed in separate conda environments via setup.sh
+# This app runs in the base environment and dispatches to subprocess workers
 
-# Run setup if dependencies aren't installed
-def check_and_install_dependencies():
-    """Check if dependencies are installed, run setup if not."""
-    dependencies_ok = True
-    
-    try:
-        import roboeval
-        print("✓ roboeval imported")
-    except ImportError as e:
-        print(f"✗ roboeval import failed: {e}")
-        dependencies_ok = False
-    
-    try:
-        import lerobot
-        print("✓ lerobot imported")
-    except ImportError as e:
-        print(f"✗ lerobot import failed: {e}")
-        dependencies_ok = False
-    
-    try:
-        import openpi
-        print("✓ openpi imported")
-    except ImportError as e:
-        print(f"✗ openpi import failed: {e}")
-        dependencies_ok = False
-    
-    # If core dependencies are missing, run setup
-    if not dependencies_ok:
-        print("\n" + "="*60)
-        print("INSTALLING MISSING DEPENDENCIES")
-        print("="*60)
-        print("Running setup.sh to install roboeval, lerobot, and openpi...")
-        
-        import subprocess
-        import os
-        
-        setup_path = os.path.join(os.path.dirname(__file__), "setup.sh")
-        result = subprocess.run(
-            ["bash", setup_path],
-            cwd=os.path.dirname(__file__),
-            capture_output=False,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            print(f"Setup script failed with return code {result.returncode}")
-            raise RuntimeError("Setup script failed to install dependencies")
-        
-        print("\n" + "="*60)
-        print("SETUP COMPLETE - Verifying installations...")
-        print("="*60)
-        
-        # Verify installations
-        try:
-            import roboeval
-            print("✓ roboeval installed successfully")
-        except ImportError as e:
-            print(f"✗ roboeval still not available: {e}")
-            
-        try:
-            import lerobot
-            print("✓ lerobot installed successfully")
-        except ImportError as e:
-            print(f"✗ lerobot still not available: {e}")
-            
-        try:
-            import openpi
-            print("✓ openpi installed successfully")
-        except ImportError as e:
-            print(f"✗ openpi still not available: {e}")
-    
-    return True
-
-import datetime
 print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")
-check_and_install_dependencies()
 
-# --- OpenPI (local inference) ---
-try:
-    from openpi.training import config as _config
-    from openpi.policies import policy_config as _policy_config
-    OPENPI_AVAILABLE = True
-    print("OpenPI imported successfully")
-except ImportError as e:
-    print(f"Error: OpenPI import failed after installation: {e}")
+# Verify environments exist on startup
+def verify_environments():
+    """Check that conda environments exist"""
+    result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
     
-    # All dependencies should be in requirements.txt now
-    print(f"OpenPI import failed. Check that all dependencies are properly installed.")
-    OPENPI_AVAILABLE = False
+    has_openpi = "openpi_env" in result.stdout
+    has_openvla = "openvla_env" in result.stdout
+    
+    print("Environment check:")
+    print(f"  {'✓' if has_openpi else '✗'} openpi_env")
+    print(f"  {'✓' if has_openvla else '✗'} openvla_env (optional)")
+    
+    if not has_openpi:
+        raise RuntimeError("openpi_env not found. Check setup.sh logs.")
+    
+    return has_openpi, has_openvla
 
-# --- RoboEval imports ---
-from roboeval.action_modes import JointPositionActionMode
-from roboeval.utils.observation_config import ObservationConfig, CameraConfig
-from roboeval.robots.configs.panda import BimanualPanda
-from roboeval.roboeval_env import CONTROL_FREQUENCY_MAX
-
-# Import all environment classes
-from roboeval.envs.manipulation import (
-    CubeHandover, CubeHandoverOrientation, CubeHandoverPosition,
-    CubeHandoverPositionAndOrientation, VerticalCubeHandover,
-    StackTwoBlocks, StackTwoBlocksOrientation, StackTwoBlocksPosition,
-    StackTwoBlocksPositionAndOrientation
-)
-from roboeval.envs.lift_pot import (
-    LiftPot, LiftPotOrientation, LiftPotPosition, LiftPotPositionAndOrientation,
-)
-from roboeval.envs.lift_tray import (
-    LiftTray, DragOverAndLiftTray, LiftTrayOrientation, LiftTrayPosition, LiftTrayPositionAndOrientation,
-)
-from roboeval.envs.pack_objects import (
-    PackBox, PackBoxOrientation, PackBoxPosition, PackBoxPositionAndOrientation,
-)
-from roboeval.envs.stack_books import (
-    PickSingleBookFromTable, PickSingleBookFromTableOrientation,
-    PickSingleBookFromTablePosition, PickSingleBookFromTablePositionAndOrientation,
-    StackSingleBookShelf, StackSingleBookShelfPosition, StackSingleBookShelfPositionAndOrientation,
-)
-from roboeval.envs.rotate_utility_objects import (
-    RotateValve, RotateValveObstacle, RotateValvePosition, RotateValvePositionAndOrientation,
-)
-
-# --- Video ---
-from moviepy.editor import VideoClip
+HAS_OPENPI, HAS_OPENVLA = verify_environments()
 
 # ---------------------- Environment Registry ----------------------
+# Task names for UI dropdown (workers have their own registry)
 _ENV_CLASSES = {
-    "CubeHandover": (CubeHandover, "handover the rod from one hand to the other hand"),
-    "CubeHandoverOrientation": (CubeHandoverOrientation, "handover the rod from one hand to the other hand"),
-    "CubeHandoverPosition": (CubeHandoverPosition, "handover the rod from one hand to the other hand"),
-    "CubeHandoverPositionOrientation": (CubeHandoverPositionAndOrientation, "handover the rod from one hand to the other hand"),
-    "CubeHandoverVertical": (VerticalCubeHandover, "handover the rod from one hand to the other hand"),
-
-    "LiftPot": (LiftPot, "lift the pot by the handles"),
-    "LiftPotOrientation": (LiftPotOrientation, "lift the pot by the handles"),
-    "LiftPotPosition": (LiftPotPosition, "lift the pot by the handles"),
-    "LiftPotPositionOrientation": (LiftPotPositionAndOrientation, "lift the pot by the handles"),
-
-    "LiftTray": (LiftTray, "lift the tray"),
-    "LiftTrayDrag": (DragOverAndLiftTray, "lift the tray"),
-    "LiftTrayOrientation": (LiftTrayOrientation, "lift the tray"),
-    "LiftTrayPosition": (LiftTrayPosition, "lift the tray"),
-    "LiftTrayPositionOrientation": (LiftTrayPositionAndOrientation, "lift the tray"),
-
-    "PackBox": (PackBox, "close the box"),
-    "PackBoxOrientation": (PackBoxOrientation, "close the box"),
-    "PackBoxPosition": (PackBoxPosition, "close the box"),
-    "PackBoxPositionOrientation": (PackBoxPositionAndOrientation, "close the box"),
-
-    "PickSingleBookFromTable": (PickSingleBookFromTable, "pick up the book from the table"),
-    "PickSingleBookFromTableOrientation": (PickSingleBookFromTableOrientation, "pick up the book from the table"),
-    "PickSingleBookFromTablePosition": (PickSingleBookFromTablePosition, "pick up the book from the table"),
-    "PickSingleBookFromTablePositionOrientation": (PickSingleBookFromTablePositionAndOrientation, "pick up the book from the table"),
-
-    "RotateValve": (RotateValve, "rotate the valve counter clockwise"),
-    "RotateValveObstacle": (RotateValveObstacle, "rotate the valve counter clockwise"),
-    "RotateValvePosition": (RotateValvePosition, "rotate the valve counter clockwise"),
-    "RotateValvePositionOrientation": (RotateValvePositionAndOrientation, "rotate the valve counter clockwise"),
-
-    "StackSingleBookShelf": (StackSingleBookShelf, "put the book on the table onto the shelf"),
-    "StackSingleBookShelfPosition": (StackSingleBookShelfPosition, "put the book on the table onto the shelf"),
-    "StackSingleBookShelfPositionOrientation": (StackSingleBookShelfPositionAndOrientation, "put the book on the table onto the shelf"),
-
-    "StackTwoBlocks": (StackTwoBlocks, "stack the two cubes"),
-    "StackTwoBlocksOrientation": (StackTwoBlocksOrientation, "stack the two cubes"),
-    "StackTwoBlocksPosition": (StackTwoBlocksPosition, "stack the two cubes"),
-    "StackTwoBlocksPositionOrientation": (StackTwoBlocksPositionAndOrientation, "stack the two cubes")
+    "CubeHandover": "handover the rod from one hand to the other hand",
+    "CubeHandoverOrientation": "handover the rod from one hand to the other hand",
+    "CubeHandoverPosition": "handover the rod from one hand to the other hand",
+    "CubeHandoverPositionOrientation": "handover the rod from one hand to the other hand",
+    "CubeHandoverVertical": "handover the rod from one hand to the other hand",
+    "LiftPot": "lift the pot by the handles",
+    "LiftPotOrientation": "lift the pot by the handles",
+    "LiftPotPosition": "lift the pot by the handles",
+    "LiftPotPositionOrientation": "lift the pot by the handles",
+    "LiftTray": "lift the tray",
+    "LiftTrayDrag": "lift the tray",
+    "LiftTrayOrientation": "lift the tray",
+    "LiftTrayPosition": "lift the tray",
+    "LiftTrayPositionOrientation": "lift the tray",
+    "PackBox": "close the box",
+    "PackBoxOrientation": "close the box",
+    "PackBoxPosition": "close the box",
+    "PackBoxPositionOrientation": "close the box",
+    "PickSingleBookFromTable": "pick up the book from the table",
+    "PickSingleBookFromTableOrientation": "pick up the book from the table",
+    "PickSingleBookFromTablePosition": "pick up the book from the table",
+    "PickSingleBookFromTablePositionOrientation": "pick up the book from the table",
+    "RotateValve": "rotate the valve counter clockwise",
+    "RotateValveObstacle": "rotate the valve counter clockwise",
+    "RotateValvePosition": "rotate the valve counter clockwise",
+    "RotateValvePositionOrientation": "rotate the valve counter clockwise",
+    "StackSingleBookShelf": "put the book on the table onto the shelf",
+    "StackSingleBookShelfPosition": "put the book on the table onto the shelf",
+    "StackSingleBookShelfPositionOrientation": "put the book on the table onto the shelf",
+    "StackTwoBlocks": "stack the two cubes",
+    "StackTwoBlocksOrientation": "stack the two cubes",
+    "StackTwoBlocksPosition": "stack the two cubes",
+    "StackTwoBlocksPositionOrientation": "stack the two cubes"
 }
 
 # ---------------------- Configuration ----------------------
-DEFAULT_DEVICE = "cuda:0" if os.path.exists("/dev/nvidia0") else "cpu"
-DEFAULT_DOWNSAMPLE_RATE = 25
 DEFAULT_MAX_STEPS = 200
 DEFAULT_FPS = 25
 
-# Check GPU availability and print diagnostics
-def check_gpu_status():
-    """Check and print GPU availability."""
-    import jax
-    print("\n" + "="*60)
-    print("GPU DIAGNOSTICS")
-    print("="*60)
-    
-    # Check JAX devices
-    devices = jax.devices()
-    print(f"JAX devices: {devices}")
-    print(f"JAX default backend: {jax.default_backend()}")
-    
-    # Check if GPU is available
-    gpu_devices = [d for d in devices if d.platform == 'gpu']
-    if gpu_devices:
-        print(f"✅ GPU available! Found {len(gpu_devices)} GPU device(s)")
-        for i, device in enumerate(gpu_devices):
-            print(f"   GPU {i}: {device}")
-    else:
-        print(f"❌ No GPU found. Running on: {jax.default_backend()}")
-    
-    # Check CUDA
-    try:
-        import torch
-        if torch.cuda.is_available():
-            print(f"✅ PyTorch CUDA available: {torch.cuda.get_device_name(0)}")
-            print(f"   CUDA version: {torch.version.cuda}")
-            print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-        else:
-            print("❌ PyTorch CUDA not available")
-    except Exception as e:
-        print(f"⚠️  Could not check PyTorch CUDA: {e}")
-    
-    print("="*60 + "\n")
-    return len(gpu_devices) > 0
+# ---------------------- Subprocess Worker Management ----------------------
+# Global: persistent subprocess pool
+_INFERENCE_WORKERS: Dict[str, subprocess.Popen] = {
+    "openpi": None,
+    "openvla": None
+}
 
-# Run GPU check at startup
-GPU_AVAILABLE = check_gpu_status()
 
-# Global policy cache to avoid reloading
-_POLICY_CACHE = {}
-
-def clear_gpu_memory():
-    """Clear GPU memory and policy cache."""
-    global _POLICY_CACHE
+def get_inference_worker(model_key: str) -> subprocess.Popen:
+    """
+    Get or create persistent inference worker subprocess.
     
-    # Clear the policy cache
-    _POLICY_CACHE.clear()
+    Workers stay alive to keep models loaded in memory (fast subsequent calls).
+    """
+    global _INFERENCE_WORKERS
     
-    # Force JAX to clear GPU memory
-    try:
-        import jax
-        import gc
+    # Check if environment exists
+    env_name = f"{model_key}_env"
+    result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
+    if env_name not in result.stdout:
+        raise RuntimeError(f"Environment {env_name} not found. Check setup.sh logs.")
+    
+    if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
+        # Start new worker
+        script_name = f"inference_{model_key}.py"
         
-        # Clear JAX compilation caches (for JAX >= 0.4.36)
-        try:
-            jax.clear_caches()
-        except AttributeError:
-            # Fallback for older JAX versions
+        print(f"Starting {model_key} worker in {env_name}...")
+        
+        proc = subprocess.Popen(
+            ["conda", "run", "-n", env_name, "python", script_name],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+        )
+        
+        _INFERENCE_WORKERS[model_key] = proc
+        print(f"✓ {model_key} worker started (PID: {proc.pid})")
+    
+    return _INFERENCE_WORKERS[model_key]
+
+
+def cleanup_workers():
+    """Terminate worker subprocesses on shutdown"""
+    for model_key, proc in _INFERENCE_WORKERS.items():
+        if proc and proc.poll() is None:
+            print(f"Terminating {model_key} worker...")
+            proc.terminate()
             try:
-                jax.clear_backends()
-            except AttributeError:
-                pass  # Neither method available, rely on gc
-        
-        # Force Python garbage collection
-        gc.collect()
-        
-        print("GPU memory cleared successfully")
-    except Exception as e:
-        print(f"Warning: Could not fully clear GPU memory: {e}")
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
-# ---------------------- OpenPI Helpers ----------------------
-def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
-    """
-    Return a local path to the checkpoint for the given task. If `ckpt_path` is provided,
-    it is returned verbatim. Otherwise, download only the files under:
-        repo: tan7271/pi0_base_checkpoints (model repo)
-        subdir: {task_name}_testing/{step}/
-    We prefer step=2999 if present, else the numerically largest available step.
-
-    This version avoids snapshot_download entirely to dodge the "0 files" issue.
-    """
-    if ckpt_path:
-        return ckpt_path
-
-    from huggingface_hub import HfApi, hf_hub_download
-
-    repo_id = "tan7271/pi0_base_checkpoints"
-    revision = "main"
-    base_dir = f"{task_name}_testing"
-    cache_dir = os.path.expanduser("~/.cache/roboeval/pi0_checkpoints")
-
-    api = HfApi()
-    try:
-        all_files: List[str] = api.list_repo_files(
-            repo_id=repo_id, revision=revision, repo_type="model"
-        )
-    except Exception as e:
-        raise RuntimeError(f"Could not list files for {repo_id}@{revision}: {e}")
-
-    # Find available numeric steps under {task}_testing/
-    steps = sorted({
-        int(p.split("/")[1])
-        for p in all_files
-        if p.startswith(base_dir + "/") and len(p.split("/")) >= 3 and p.split("/")[1].isdigit()
-    })
-    if not steps:
-        nearby = [p for p in all_files if base_dir in p][:10]
-        raise FileNotFoundError(
-            f"No files found under '{base_dir}/' in {repo_id}@{revision}. "
-            f"Example paths I do see: {nearby}"
-        )
-
-    chosen_step = 2999 if 2999 in steps else steps[-1]
-    subdir = f"{base_dir}/{chosen_step}"
-
-    print(
-        f"Downloading checkpoint for {task_name} directly via hf_hub_download "
-        f"(repo={repo_id}, subdir={subdir})..."
-    )
-
-    # We only need these parts; if you want rollouts, drop the filter below.
-    needed_roots = (
-        f"{subdir}/_CHECKPOINT_METADATA",
-        f"{subdir}/assets/",
-        f"{subdir}/params/",
-        f"{subdir}/train_state/",
-    )
-    wanted = [
-        p for p in all_files
-        if p == f"{subdir}/_CHECKPOINT_METADATA"
-        or any(p.startswith(root) for root in needed_roots[1:])
-    ]
-
-    # If the filtered list is empty (unexpected), grab the entire subdir.
-    if not wanted:
-        wanted = [p for p in all_files if p.startswith(subdir + "/")]
-        if not wanted:
-            raise FileNotFoundError(
-                f"Repo listing shows no files under '{subdir}/'. "
-                f"Steps seen: {steps}"
-            )
-
-    manual_root = os.path.join(cache_dir, "manual")
-    os.makedirs(manual_root, exist_ok=True)
-
-    # Download every file we want into a local mirror of the repo layout.
-    for relpath in wanted:
-        hf_hub_download(
-            repo_id=repo_id,
-            filename=relpath,
-            revision=revision,
-            repo_type="model",
-            local_dir=manual_root,
-            local_dir_use_symlinks=True,  # saves space on shared filesystems
-        )
-
-    manual_ckpt_dir = os.path.join(manual_root, subdir)
-
-    # Basic sanity: ensure the directory exists and isn't empty
-    def _nonempty_dir(path: str) -> bool:
-        return os.path.isdir(path) and any(True for _ in os.scandir(path))
-
-    if not _nonempty_dir(manual_ckpt_dir):
-        try:
-            siblings = [e.name for e in os.scandir(os.path.dirname(manual_ckpt_dir))]
-        except Exception:
-            siblings = []
-        raise FileNotFoundError(
-            f"Downloaded files, but '{manual_ckpt_dir}' is missing/empty.\n"
-            f"Siblings present: {siblings}\n"
-            f"(repo_id={repo_id}, subdir={subdir})"
-        )
-
-    return manual_ckpt_dir
-
-
-def load_pi0_base_bimanual_droid(task_name: str, ckpt_path: str):
-    """Load Pi0 policy model for the given task."""
-    if not OPENPI_AVAILABLE:
-        raise RuntimeError("OpenPI is not available. Cannot load Pi0 model.")
-    
-    # Get checkpoint path (download from HF if needed)
-    checkpoint_path = get_checkpoint_path(task_name, ckpt_path)
-    
-    cache_key = f"{task_name}:{checkpoint_path}"
-    if cache_key in _POLICY_CACHE:
-        return _POLICY_CACHE[cache_key]
-    
-    # Clear old policies from cache to free GPU memory for new task
-    if len(_POLICY_CACHE) > 0:
-        print(f"Clearing {len(_POLICY_CACHE)} cached model(s) to free GPU memory...")
-        clear_gpu_memory()
-    
-    cfg = _config.get_config("pi0_base_bimanual_droid_finetune")
-    bimanual_assets = _config.AssetsConfig(
-        assets_dir=f"{checkpoint_path}/assets/",
-        asset_id=f"tan7271/{task_name}",
-    )
-    cfg = dataclasses.replace(cfg, data=dataclasses.replace(cfg.data, assets=bimanual_assets))
-    policy = _policy_config.create_trained_policy(cfg, checkpoint_path)
-    
-    _POLICY_CACHE[cache_key] = policy
-    return policy
-
-
-def make_openpi_example_from_roboeval(obs_dict: dict, prompt: str) -> dict:
-    """Convert RoboEval observation to OpenPI format."""
-    obs = obs_dict[0] if isinstance(obs_dict, (tuple, list)) else obs_dict
-    example = {"prompt": prompt}
-
-    # Cameras (CHW→HWC)
-    exterior_chw = obs["rgb_head"]
-    left_wrist_chw = obs["rgb_left_wrist"]
-    right_wrist_chw = obs["rgb_right_wrist"]
-    example["observation/exterior_image_1_left"] = np.moveaxis(exterior_chw, 0, -1)
-    example["observation/wrist_image_left"] = np.moveaxis(left_wrist_chw, 0, -1)
-    example["observation/wrist_image_right"] = np.moveaxis(right_wrist_chw, 0, -1)
-
-    # Joints and grippers
-    prop = np.asarray(obs["proprioception"], dtype=np.float32).reshape(-1)
-    example["observation/joint_position"] = prop
-
-    grip = np.asarray(obs["proprioception_grippers"], dtype=np.float32).reshape(-1)[:2]
-    example["observation/gripper_position"] = grip
-
-    return example
-
-
-def map_policy_action_to_env_abs(action_vec: np.ndarray, env) -> np.ndarray:
-    """Map policy action to environment action."""
-    a = np.asarray(action_vec, dtype=np.float32).reshape(-1)
-    if a.shape[0] != 16:
-        raise ValueError(f"Expected (16,), got {a.shape}.")
-    return a
-
-
-def _clip_to_space(env, action: np.ndarray) -> np.ndarray:
-    """Safety: clip to env action space."""
-    return np.clip(action, env.action_space.low, env.action_space.high)
+atexit.register(cleanup_workers)
 
 
 @dataclasses.dataclass
@@ -450,6 +154,16 @@ class InferenceRequest:
     max_steps: int
     fps: int
     progress: gr.Progress
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "task_name": self.task_name,
+            "checkpoint_path": self.checkpoint_path or "",
+            "custom_instruction": self.custom_instruction,
+            "max_steps": self.max_steps,
+            "fps": self.fps,
+        }
 
 
 @dataclasses.dataclass
@@ -460,224 +174,78 @@ class ModelDefinition:
     run_inference: Callable[[InferenceRequest], Tuple[Optional[str], str]]
 
 
-# ---------------------- Video Helpers ----------------------
-def save_frames_to_video(frames, output_path: str, fps: int = 25) -> str:
-    """Save rollout frames to a video file."""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # Convert frames to proper format
-    frames = np.array(frames)
-    if frames.ndim == 4 and frames.shape[1] == 3:  # (T, C, H, W)
-        frames = np.moveaxis(frames, 1, -1)  # → (T, H, W, C)
-    
-    duration = len(frames) / fps
-    clip = VideoClip(make_frame=lambda t: frames[min(int(t * fps), len(frames) - 1)], duration=duration)
-    clip.write_videofile(output_path, fps=fps, codec="libx264", logger=None)
-    
-    return output_path
-
-
-# ---------------------- RoboEval Environment Setup ----------------------
-def setup_env(task_name: str, downsample_rate: int = 25):
-    """Setup RoboEval environment for the given task."""
-    cameras = [
-        CameraConfig(name="head", rgb=True, depth=False, resolution=(256, 256)),
-        CameraConfig(name="left_wrist", rgb=True, depth=False, resolution=(256, 256)),
-        CameraConfig(name="right_wrist", rgb=True, depth=False, resolution=(256, 256)),
-    ]
-    
-    Env, prompt = _ENV_CLASSES[task_name]
-    env = Env(
-        action_mode=JointPositionActionMode(
-            floating_base=True,
-            absolute=False,
-            block_until_reached=False,
-            ee=False,
-            floating_dofs=[],
-        ),
-        observation_config=ObservationConfig(cameras=cameras, proprioception=True),
-        render_mode="rgb_array",
-        robot_cls=BimanualPanda,
-        control_frequency=CONTROL_FREQUENCY_MAX // downsample_rate,
-    )
-    
-    return env, prompt
-
-
-def _unpack_obs(obs_or_tuple):
-    """Unpack observation if it's a tuple."""
-    return obs_or_tuple[0] if isinstance(obs_or_tuple, (tuple, list)) else obs_or_tuple
-
-
-# ---------------------- Inference Loop ----------------------
-def run_inference_loop(
-    env,
-    policy,
-    instruction: str,
-    max_steps: int = 200,
-    open_loop_horizon: int = 10,
-):
-    """Run inference loop for one episode."""
-    obs = env.reset()
-    successes = 0
-    images_env = []
-    chunk = None
-    i_in_chunk = 0
-
-    for step_idx in range(max_steps):
-        cur_obs = _unpack_obs(obs)
-        
-        # Collect environment render
-        images_env.append(copy.deepcopy(env.render()))
-        
-        # Request new action chunk when needed
-        if chunk is None or i_in_chunk >= open_loop_horizon:
-            example = make_openpi_example_from_roboeval(cur_obs, instruction)
-            out = policy.infer(example)
-            chunk = out["actions"]
-            i_in_chunk = 0
-
-        # Take next action from cached chunk
-        a_vec = chunk[i_in_chunk]
-        i_in_chunk += 1
-
-        env_action = map_policy_action_to_env_abs(a_vec, env)
-        env_action = _clip_to_space(env, env_action)
-
-        obs, reward, terminated, truncated, info = env.step(env_action)
-        successes += int(reward > 0)
-
-        if terminated or truncated:
-            break
-
-    stats = {"steps": step_idx + 1, "success_signal": successes}
-    return stats, images_env
-
-
-# ---------------------- Main Inference Function ----------------------
+# ---------------------- Main Inference Functions ----------------------
 def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
-    """
-    Main function to run Pi0 inference.
-    
-    Returns:
-        Tuple of (video_path, status_message)
-    """
+    """Dispatch OpenPI inference to subprocess"""
     try:
-        task_name = request.task_name
-        checkpoint_path = request.checkpoint_path
-        custom_instruction = request.custom_instruction
-        max_steps = int(request.max_steps)
-        fps = int(request.fps)
-        progress = request.progress
-
-        progress(0, desc="Loading model and environment...")
+        request.progress(0, desc="Starting OpenPI worker...")
+        worker = get_inference_worker("openpi")
         
-        # Check GPU status
-        import jax
-        gpu_info = ""
-        devices = jax.devices()
-        gpu_devices = [d for d in devices if d.platform == 'gpu']
-        if gpu_devices:
-            gpu_info = f"🎮 **GPU**: {len(gpu_devices)} GPU(s) detected - {gpu_devices[0]}\n"
+        request.progress(0.1, desc="Sending inference request...")
+        # Send request
+        request_dict = request.to_dict()
+        request_json = json.dumps(request_dict)
+        worker.stdin.write(request_json + "\n")
+        worker.stdin.flush()
+        
+        request.progress(0.2, desc="Waiting for inference result...")
+        # Read result
+        result_line = worker.stdout.readline()
+        if not result_line:
+            return None, "❌ Worker process ended unexpectedly"
+        
+        result = json.loads(result_line)
+        
+        request.progress(1.0, desc="Complete!")
+        
+        if result["success"]:
+            return result["video_path"], result["status_message"]
         else:
-            gpu_info = f"⚠️ **GPU**: Not detected! Running on {jax.default_backend()}\n"
-        
-        # Check if OpenPI is available
-        if not OPENPI_AVAILABLE:
-            return None, gpu_info + f"❌ **OpenPI not available**\n\nOpenPI is required for Pi0 model inference but is not installed. Please check the build logs for installation errors."
-        
-        # Validate task
-        if task_name not in _ENV_CLASSES:
-            return None, f"❌ Unknown task: {task_name}"
-        
-        # Load policy
-        progress(0.2, desc="Loading Pi0 policy...")
-        policy = load_pi0_base_bimanual_droid(task_name, checkpoint_path)
-        
-        # Setup environment
-        progress(0.4, desc="Setting up environment...")
-        env, default_prompt = setup_env(task_name, downsample_rate=DEFAULT_DOWNSAMPLE_RATE)
-        instruction = custom_instruction if custom_instruction else default_prompt
-        
-        # Run inference
-        progress(0.5, desc="Running inference...")
-        stats, images_env = run_inference_loop(
-            env, policy, instruction, max_steps=max_steps
-        )
-        
-        # Save video
-        progress(0.8, desc="Saving video...")
-        video_path = os.path.join(tempfile.gettempdir(), f"pi0_rollout_{task_name}.mp4")
-        save_frames_to_video(images_env, video_path, fps=fps)
-        
-        # Cleanup
-        env.close()
-        
-        # Clear GPU memory after inference to prevent OOM on next run
-        import gc
-        gc.collect()
-        
-        progress(1.0, desc="Complete!")
-        
-        status = gpu_info + f"✅ **Inference Complete!**\n\n"
-        status += f"- **Task**: {task_name}\n"
-        status += f"- **Steps**: {stats['steps']}\n"
-        status += f"- **Success Signal**: {stats['success_signal']}\n"
-        status += f"- **Instruction**: {instruction}\n"
-        
-        return video_path, status
-        
+            error_msg = f"❌ OpenPI Error: {result.get('error', 'Unknown error')}\n\n{result.get('status_message', '')}"
+            return None, error_msg
+            
     except Exception as e:
         import traceback
-        
-        # Check if it's an out of memory error
-        if "Out of memory" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            error_msg = f"""❌ **Out of Memory Error**
-
-The model is too large for the current hardware configuration.
-
-**Pi0 Model Requirements:**
-- Minimum: 8 GB GPU memory
-- Recommended: 16+ GB GPU memory
-
-**Solutions:**
-1. **Upgrade this Space to use a GPU** (Settings → Hardware → T4 small or better)
-2. Use a smaller/quantized checkpoint
-3. Contact the Space owner to enable GPU hardware
-
-**Technical Details:**
-```
-{str(e)}
-```
-"""
-        else:
-            error_msg = f"❌ **Error during inference:**\n\n```\n{str(e)}\n\n{traceback.format_exc()}\n```"
-        
-        return None, error_msg
+        return None, f"❌ Worker communication error: {str(e)}\n\n{traceback.format_exc()}"
 
 
 def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
-    """
-    Placeholder for OpenVLA backend integration.
-    
-    Currently returns a descriptive message until the OpenVLA runtime is wired up.
-    """
-    status = (
-        "⚠️ **OpenVLA integration is not yet available in this Space.**\n\n"
-        "The frontend is model-aware, so you can wire in the backend by implementing "
-        "`run_openvla_inference` to load checkpoints and execute rollouts.\n\n"
-        "Requested configuration:\n"
-        f"- Task: {request.task_name}\n"
-        f"- Checkpoint: {request.checkpoint_path or 'auto'}\n"
-        f"- Steps: {request.max_steps}\n"
-        f"- FPS: {request.fps}\n"
-    )
-    return None, status
+    """Dispatch OpenVLA inference to subprocess"""
+    try:
+        request.progress(0, desc="Starting OpenVLA worker...")
+        worker = get_inference_worker("openvla")
+        
+        request.progress(0.1, desc="Sending inference request...")
+        # Send request
+        request_dict = request.to_dict()
+        request_json = json.dumps(request_dict)
+        worker.stdin.write(request_json + "\n")
+        worker.stdin.flush()
+        
+        request.progress(0.2, desc="Waiting for inference result...")
+        # Read result
+        result_line = worker.stdout.readline()
+        if not result_line:
+            return None, "❌ Worker process ended unexpectedly"
+        
+        result = json.loads(result_line)
+        
+        request.progress(1.0, desc="Complete!")
+        
+        if result["success"]:
+            return result["video_path"], result["status_message"]
+        else:
+            error_msg = f"❌ OpenVLA Error: {result.get('error', 'Unknown error')}\n\n{result.get('status_message', '')}"
+            return None, error_msg
+            
+    except Exception as e:
+        import traceback
+        return None, f"❌ Worker communication error: {str(e)}\n\n{traceback.format_exc()}"
 
 
-# Registry of supported models (UI order follows this definition)
+# Registry of supported models (populated dynamically based on available environments)
 MODEL_REGISTRY: Dict[str, ModelDefinition] = {
-    "pi0_openpi": ModelDefinition(
+    "openpi": ModelDefinition(
         label="Pi0 Base (OpenPI)",
         description=(
             "Runs the Pi0 bimanual policy using the OpenPI runtime. "
@@ -686,16 +254,21 @@ MODEL_REGISTRY: Dict[str, ModelDefinition] = {
         ),
         run_inference=run_pi0_inference,
     ),
-    "openvla": ModelDefinition(
+}
+
+# Add OpenVLA only if environment exists
+if HAS_OPENVLA:
+    MODEL_REGISTRY["openvla"] = ModelDefinition(
         label="OpenVLA",
         description=(
             "Runs the OpenVLA (Open Vision-Language-Action) policy. "
             "OpenVLA is a vision-language-action model for robot manipulation tasks. "
-            "Provide a checkpoint path or leave empty to use default OpenVLA checkpoints."
+            "**Checkpoint path is required** - provide a path to an OpenVLA checkpoint directory."
         ),
         run_inference=run_openvla_inference,
-    ),
-}
+    )
+else:
+    print("ℹ OpenVLA environment not found - OpenVLA model will not be available")
 
 
 def _format_model_info(model_key: str) -> str:
@@ -744,12 +317,16 @@ def create_gradio_interface():
         gr.Markdown("""
         # 🤖 Robot Policy Inference on RoboEval Tasks
         
-        Choose a supported model backend (starting with Pi0 via OpenPI) and run it on RoboEval tasks to watch the generated execution video.
+        Choose a supported model backend and run it on RoboEval tasks to watch the generated execution video.
+        
+        **Architecture**: Models run in isolated conda environments to avoid dependency conflicts. The first inference with each model may take 30-60 seconds to load the model, but subsequent inferences are fast.
         
         ⚠️ **Hardware Requirements:** This Space requires a GPU with at least 8GB memory.
         If you see "Out of Memory" errors, upgrade the Space hardware in Settings → Hardware → T4 small.
         
-        **Note**: Leave the checkpoint path empty to use the model's default retrieval logic (Pi0 fetches from `tan7271/pi0_base_checkpoints`), or provide a custom local path.
+        **Checkpoint Paths**:
+        - **OpenPI**: Leave empty to auto-download from `tan7271/pi0_base_checkpoints`, or provide a custom path
+        - **OpenVLA**: **Required** - provide a path to an OpenVLA checkpoint directory
         """)
         
         with gr.Row():
@@ -845,6 +422,10 @@ def create_gradio_interface():
         - **Rotate Valve**: Turn a valve counter-clockwise
         - **Stack Books**: Manipulate books on tables and shelves
         - And many more variations with position/orientation constraints
+        
+        ### Model Switching
+        
+        You can switch between OpenPI and OpenVLA models instantly. Each model runs in its own isolated environment with optimized dependencies. The first inference with each model loads it into memory (30-60s), but subsequent inferences are fast.
         
         ### GPU Usage
         

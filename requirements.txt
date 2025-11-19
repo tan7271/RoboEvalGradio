@@ -1,88 +1,12 @@
-# Core frameworks
+# Base environment (Gradio only)
+# Minimal dependencies for the main Gradio app
+# Model-specific dependencies are installed in separate conda environments
+
 gradio>=4.0.0
-
-# Essential OpenPI dependencies (with specific versions to avoid conflicts)
-augmax>=0.3.4
-dm-tree>=0.1.8
-einops>=0.8.0
-equinox>=0.11.8
-flatbuffers>=24.3.25
-flax==0.10.2
-fsspec[gcs]>=2024.6.0
-gym-aloha>=0.1.1
-imageio>=2.36.1
-jax[cuda12]==0.5.3
-jaxtyping==0.2.36
-ml_collections==1.0.0
 numpy>=1.22.4,<2.0.0
-numpydantic>=1.6.6
-opencv-python>=4.10.0.84
-orbax-checkpoint==0.11.13
 pillow>=11.0.0
-sentencepiece>=0.2.0
-torch>=2.4.0
-torchvision>=0.19.0
-torchaudio>=2.4.0
-tqdm-loggable>=0.2
-typing-extensions>=4.12.2
-tyro>=0.9.5
-wandb>=0.19.1
-filelock>=3.16.1
-beartype==0.19.0
-treescope>=0.1.7
-transformers==4.48.1
-rich>=14.0.0
-polars>=1.30.0
-
-# JAX and ML utilities
-jaxlib==0.5.3
-optax==0.2.5
-chex==0.1.90
-
-# Video/media processing
-moviepy==1.0.3
-imageio-ffmpeg==0.6.0
-opencv-python-headless==4.11.0.86
-
-# MuJoCo and robotics
-mujoco==3.3.3
-dm-control==1.0.31
-mujoco-utils==0.0.6
-gymnasium==0.29.1
-
-# Hugging Face (simplified versions)
-datasets==3.6.0
 huggingface-hub>=0.36.0
-diffusers==0.26.3
-tokenizers>=0.19.1
 
-# Utilities
-hydra-core==1.3.2
-omegaconf==2.3.0
-pyyaml==6.0.2
-pyquaternion==0.9.9
-click==8.2.1
-click-prompt==0.6.5
-rich-click==1.8.9
-
-# Additional dependencies
-h5py==3.14.0
-scipy==1.16.1
-pandas==2.3.2
-tqdm==4.67.1
-requests==2.32.5
-packaging==25.0
-safetensors>=0.4.1
-
-# openpi-client dependencies (needed since we install OpenPI with --no-deps)
-msgpack>=1.0.5
-tree>=0.2.4
-websockets>=11.0
-
-# OpenVLA dependencies (core packages needed for OpenVLA)
-accelerate>=1.11.0
-peft>=0.11.1
-timm>=0.9.10
-
-# Install lerobot and openvla separately to avoid conflicts
-# lerobot and openvla will be installed via git in setup.sh
+# Note: OpenPI and OpenVLA dependencies are installed in separate conda environments
+# See requirements_openpi.txt and requirements_openvla.txt
+# Setup is handled by setup.sh which creates openpi_env and openvla_env

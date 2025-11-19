@@ -1,5 +1,5 @@
 ---
-title: Pi0 Inference on RoboEval Tasks
+title: Robot Policy Inference on RoboEval Tasks
 emoji: 🤖
 colorFrom: blue
 colorTo: purple
@@ -12,17 +12,33 @@ license: mit
 python_version: "3.11"
 ---
 
-# Pi0 Inference on RoboEval Tasks
+# Robot Policy Inference on RoboEval Tasks
 
-A Hugging Face Space for running Pi0 bimanual manipulation policy inference on various robot tasks from the RoboEval benchmark.
+A Hugging Face Space for running robot manipulation policy inference on various tasks from the RoboEval benchmark. Supports **OpenPI** (Pi0 bimanual policy) and **OpenVLA** (vision-language-action) backends.
 
 ## 🚀 Features
 
+- **Multiple Model Backends**: Switch between OpenPI and OpenVLA using environment variables
 - **Interactive Gradio Interface**: Easy-to-use web interface for running inference
 - **Multiple Tasks**: Support for 20+ bimanual manipulation tasks
 - **Real-time Video Output**: View robot execution videos immediately after inference
 - **Customizable Parameters**: Adjust max steps, FPS, and task instructions
 - **GPU Acceleration**: Runs on T4 GPU for fast inference
+- **Dynamic Model Detection**: Interface adapts based on which backend is installed
+
+## 🔀 Switching Between OpenPI and OpenVLA
+
+This Space supports both OpenPI and OpenVLA, but they **cannot run simultaneously** due to dependency conflicts. Choose your backend using the `MODEL_BACKEND` environment variable:
+
+### Quick Setup
+
+1. Go to **Settings → Variables** in your Space
+2. Add environment variable:
+   - **Name**: `MODEL_BACKEND`
+   - **Value**: `openpi` (default) or `openvla`
+3. Save and rebuild
+
+See [SWITCHING_MODELS.md](./SWITCHING_MODELS.md) for detailed instructions and technical explanation.
 
 ## 📋 Available Tasks
 

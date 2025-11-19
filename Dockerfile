@@ -33,10 +33,6 @@ RUN BAZELISK_VERSION="v1.19.0" && \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     export PATH="$HOME/.cargo/bin:$PATH"
 
-# Accept conda Terms of Service
-RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
-    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-
 # Copy build script
 COPY build_roboeval.sh /build/
 RUN chmod +x /build/build_roboeval.sh
@@ -61,10 +57,6 @@ RUN PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sy
 FROM continuumio/anaconda3:main
 
 WORKDIR /code
-
-# Accept conda Terms of Service
-RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
-    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 
 # Install base dependencies (Gradio and minimal requirements)
 RUN conda install -n base -y \

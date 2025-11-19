@@ -189,6 +189,24 @@ _INFERENCE_WORKERS: Dict[str, subprocess.Popen] = {
     "openvla": None
 }
 
+# Global: stderr buffers for workers (to capture errors)
+_WORKER_STDERR: Dict[str, list] = {
+    "openpi": [],
+    "openvla": []
+}
+
+
+def _stderr_reader(proc: subprocess.Popen, model_key: str):
+    """Background thread to read stderr from worker process"""
+    global _WORKER_STDERR
+    try:
+        for line in proc.stderr:
+            _WORKER_STDERR[model_key].append(line)
+            # Also print to console for debugging
+            print(f"[{model_key} worker stderr] {line}", end="", flush=True)
+    except:
+        pass
+
 
 def find_conda():
     """Find conda executable in common locations."""
@@ -246,7 +264,7 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
     
     Workers stay alive to keep models loaded in memory (fast subsequent calls).
     """
-    global _INFERENCE_WORKERS
+    global _INFERENCE_WORKERS, _WORKER_STDERR
     
     env_name = f"{model_key}_env"
     script_name = f"inference_{model_key}.py"
@@ -283,6 +301,26 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
                 bufsize=1,  # Line buffered
             )
             
+            # Start background thread to read stderr
+            import threading
+            _WORKER_STDERR[model_key] = []  # Reset stderr buffer
+            stderr_thread = threading.Thread(target=_stderr_reader, args=(proc, model_key), daemon=True)
+            stderr_thread.start()
+            
+            # Give the worker a moment to start and check for immediate failures
+            import time
+            time.sleep(2.0)  # Wait 2 seconds for startup (imports can take time)
+            if proc.poll() is not None:
+                # Process died immediately - get stderr from buffer
+                stderr_output = "".join(_WORKER_STDERR[model_key])
+                error_msg = f"❌ Worker process failed to start (exit code: {proc.returncode})"
+                if stderr_output:
+                    error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                else:
+                    error_msg += "\n\n(No stderr output captured. The worker may have crashed during import.)"
+                print(error_msg, flush=True)
+                raise RuntimeError(error_msg)
+            
             _INFERENCE_WORKERS[model_key] = proc
             print(f"✓ {model_key} worker started (PID: {proc.pid})")
         
@@ -307,6 +345,26 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
                     text=True,
                     bufsize=1,  # Line buffered
                 )
+                
+                # Start background thread to read stderr
+                import threading
+                _WORKER_STDERR[model_key] = []  # Reset stderr buffer
+                stderr_thread = threading.Thread(target=_stderr_reader, args=(proc, model_key), daemon=True)
+                stderr_thread.start()
+                
+                # Give the worker a moment to start and check for immediate failures
+                import time
+                time.sleep(2.0)  # Wait 2 seconds for startup (imports can take time)
+                if proc.poll() is not None:
+                    # Process died immediately - get stderr from buffer
+                    stderr_output = "".join(_WORKER_STDERR[model_key])
+                    error_msg = f"❌ Worker process failed to start (exit code: {proc.returncode})"
+                    if stderr_output:
+                        error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                    else:
+                        error_msg += "\n\n(No stderr output captured. The worker may have crashed during import.)"
+                    print(error_msg, flush=True)
+                    raise RuntimeError(error_msg)
                 
                 _INFERENCE_WORKERS[model_key] = proc
                 print(f"✓ {model_key} worker started (PID: {proc.pid})")
@@ -477,7 +535,40 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
         # Read result
         result_line = worker.stdout.readline()
         if not result_line:
-            return None, "❌ Worker process ended unexpectedly"
+            # Worker process ended - check why
+            return_code = worker.poll()
+            if return_code is not None:
+                # Process has ended, read stderr for error messages
+                stderr_output = ""
+                try:
+                    # Read any remaining stderr
+                    stderr_lines = []
+                    while True:
+                        line = worker.stderr.readline()
+                        if not line:
+                            break
+                        stderr_lines.append(line)
+                    stderr_output = "".join(stderr_lines)
+                except:
+                    pass
+                
+                # Also check the stderr buffer
+                stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+                if stderr_output:
+                    stderr_combined = stderr_output
+                elif stderr_from_buffer:
+                    stderr_combined = stderr_from_buffer
+                else:
+                    stderr_combined = ""
+                
+                error_msg = f"❌ Worker process ended unexpectedly (exit code: {return_code})"
+                if stderr_combined:
+                    error_msg += f"\n\nWorker stderr output:\n{stderr_combined}"
+                else:
+                    error_msg += "\n\n(No stderr output captured. Check container logs for details.)"
+                return None, error_msg
+            else:
+                return None, "❌ Worker process ended unexpectedly (no output received)"
         
         result = json.loads(result_line)
         
@@ -511,7 +602,40 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         # Read result
         result_line = worker.stdout.readline()
         if not result_line:
-            return None, "❌ Worker process ended unexpectedly"
+            # Worker process ended - check why
+            return_code = worker.poll()
+            if return_code is not None:
+                # Process has ended, read stderr for error messages
+                stderr_output = ""
+                try:
+                    # Read any remaining stderr
+                    stderr_lines = []
+                    while True:
+                        line = worker.stderr.readline()
+                        if not line:
+                            break
+                        stderr_lines.append(line)
+                    stderr_output = "".join(stderr_lines)
+                except:
+                    pass
+                
+                # Also check the stderr buffer
+                stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+                if stderr_output:
+                    stderr_combined = stderr_output
+                elif stderr_from_buffer:
+                    stderr_combined = stderr_from_buffer
+                else:
+                    stderr_combined = ""
+                
+                error_msg = f"❌ Worker process ended unexpectedly (exit code: {return_code})"
+                if stderr_combined:
+                    error_msg += f"\n\nWorker stderr output:\n{stderr_combined}"
+                else:
+                    error_msg += "\n\n(No stderr output captured. Check container logs for details.)"
+                return None, error_msg
+            else:
+                return None, "❌ Worker process ended unexpectedly (no output received)"
         
         result = json.loads(result_line)
         

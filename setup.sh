@@ -4,6 +4,38 @@ set -e
 echo "===== Multi-Environment Setup ====="
 echo "Building OpenPI environment (OpenVLA temporarily disabled)..."
 
+# Check if conda is installed, install if not
+if ! command -v conda &> /dev/null; then
+    echo ""
+    echo "===== Installing Miniconda ====="
+    echo "Conda not found. Installing Miniconda..."
+    
+    # Download and install Miniconda
+    MINICONDA_INSTALLER="/tmp/miniconda.sh"
+    MINICONDA_PREFIX="${HOME}/miniconda3"
+    
+    wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ${MINICONDA_INSTALLER}
+    bash ${MINICONDA_INSTALLER} -b -p ${MINICONDA_PREFIX}
+    rm ${MINICONDA_INSTALLER}
+    
+    # Initialize conda
+    ${MINICONDA_PREFIX}/bin/conda init bash
+    source ${MINICONDA_PREFIX}/etc/profile.d/conda.sh
+    
+    # Add conda to PATH for this script
+    export PATH="${MINICONDA_PREFIX}/bin:${PATH}"
+    
+    echo "✓ Miniconda installed at ${MINICONDA_PREFIX}"
+else
+    echo "✓ Conda already installed"
+    # Initialize conda if not already done
+    if [ -f "${HOME}/miniconda3/etc/profile.d/conda.sh" ]; then
+        source ${HOME}/miniconda3/etc/profile.d/conda.sh
+    elif [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+        source /opt/conda/etc/profile.d/conda.sh
+    fi
+fi
+
 # Install RoboEval in base (shared by both)
 echo ""
 echo "===== Installing RoboEval (shared) ====="

@@ -261,20 +261,105 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
             return _INFERENCE_WORKERS[model_key]
         
         else:
-            # Neither conda nor environment Python found
-            raise RuntimeError(
+            # Neither conda nor environment Python found - try running setup.sh
+            setup_sh_path = os.path.join(os.path.dirname(__file__), "setup.sh")
+            
+            if os.path.exists(setup_sh_path):
+                print(f"⚠️  {env_name} environment not found. Attempting to run setup.sh...")
+                try:
+                    result = subprocess.run(
+                        ["bash", setup_sh_path],
+                        cwd=os.path.dirname(__file__),
+                        capture_output=True,
+                        text=True,
+                        timeout=1800  # 30 minutes timeout
+                    )
+                    
+                    if result.returncode == 0:
+                        print("✓ setup.sh completed successfully. Retrying worker startup...")
+                        # Retry finding conda/env after setup
+                        conda_path = find_conda()
+                        env_python = find_conda_env_python(env_name) if not conda_path else None
+                        
+                        if conda_path:
+                            # Retry with conda
+                            return get_inference_worker(model_key)
+                        elif env_python:
+                            # Retry with direct Python
+                            return get_inference_worker(model_key)
+                        else:
+                            raise RuntimeError("setup.sh ran but environment still not found")
+                    else:
+                        print(f"✗ setup.sh failed with return code {result.returncode}")
+                        print(f"stdout: {result.stdout}")
+                        print(f"stderr: {result.stderr}")
+                        raise RuntimeError(f"setup.sh failed: {result.stderr}")
+                        
+                except subprocess.TimeoutExpired:
+                    raise RuntimeError("setup.sh timed out after 30 minutes")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to run setup.sh: {str(e)}")
+            
+            # If setup.sh doesn't exist or failed, provide detailed diagnostics
+            import glob
+            
+            # Collect diagnostic information
+            diagnostics = []
+            diagnostics.append(f"Environment name: {env_name}")
+            diagnostics.append(f"Script name: {script_name}")
+            
+            # Check if conda exists anywhere
+            conda_locations = [
+                "/opt/conda/bin/conda",
+                "/opt/conda/condabin/conda",
+                "/usr/local/conda/bin/conda",
+                "/home/user/miniconda3/bin/conda",
+                "/home/user/anaconda3/bin/conda",
+            ]
+            found_conda = [loc for loc in conda_locations if os.path.exists(loc)]
+            if found_conda:
+                diagnostics.append(f"Found conda at: {found_conda}")
+            else:
+                diagnostics.append("No conda found in common locations")
+            
+            # Check for environment directories
+            env_locations = [
+                "/opt/conda/envs",
+                "/usr/local/conda/envs",
+                "/home/user/miniconda3/envs",
+                "/home/user/anaconda3/envs",
+            ]
+            found_envs = []
+            for base in env_locations:
+                if os.path.exists(base):
+                    envs = os.listdir(base)
+                    found_envs.append(f"{base}: {envs}")
+            if found_envs:
+                diagnostics.append(f"Found conda environments at:\n  " + "\n  ".join(found_envs))
+            else:
+                diagnostics.append("No conda environment directories found")
+            
+            # Check if setup.sh exists
+            if os.path.exists(setup_sh_path):
+                diagnostics.append(f"setup.sh exists at: {setup_sh_path}")
+            else:
+                diagnostics.append("setup.sh not found in repository")
+            
+            error_msg = (
                 f"Could not find conda or {env_name} environment.\n\n"
+                "Diagnostics:\n" + "\n".join(f"  - {d}" for d in diagnostics) + "\n\n"
                 "This usually means:\n"
-                "1. setup.sh has not run yet, or\n"
-                "2. setup.sh failed to create the conda environment, or\n"
-                "3. conda is not installed in this Space.\n\n"
-                "Please check:\n"
-                "- That setup.sh ran successfully during Space build\n"
-                "- The build logs for any errors\n"
-                "- That conda is available (HuggingFace Spaces should have it at /opt/conda/bin/conda)\n\n"
+                "1. setup.sh has not run yet (it will be attempted automatically on first use)\n"
+                "2. setup.sh failed to create the conda environment (check logs above)\n"
+                "3. conda installation failed\n\n"
+                "For HuggingFace Spaces:\n"
+                "- setup.sh will install conda and create environments automatically\n"
+                "- This may take 15-20 minutes on first run\n"
+                "- Check the logs above for any errors\n\n"
                 f"Expected environment: {env_name}\n"
                 "Expected locations: /opt/conda/envs/{env_name}, ~/miniconda3/envs/{env_name}, etc."
             )
+            raise RuntimeError(error_msg)
 
 
 def cleanup_workers():

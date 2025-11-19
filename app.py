@@ -137,6 +137,32 @@ _INFERENCE_WORKERS: Dict[str, subprocess.Popen] = {
 }
 
 
+def find_conda():
+    """Find conda executable in common locations."""
+    import shutil
+    
+    # Try standard PATH lookup
+    conda_path = shutil.which("conda")
+    if conda_path:
+        return conda_path
+    
+    # Try common conda installation locations
+    common_paths = [
+        "/opt/conda/bin/conda",
+        "/usr/local/conda/bin/conda",
+        "/home/user/miniconda3/bin/conda",
+        "/home/user/anaconda3/bin/conda",
+        "/root/miniconda3/bin/conda",
+        "/root/anaconda3/bin/conda",
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
+
+
 def get_inference_worker(model_key: str) -> subprocess.Popen:
     """
     Get or create persistent inference worker subprocess.
@@ -145,20 +171,39 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
     """
     global _INFERENCE_WORKERS
     
-    # Check if environment exists
+    # Find conda executable
+    conda_path = find_conda()
+    if not conda_path:
+        raise RuntimeError(
+            "conda not found. Please ensure conda is installed and available. "
+            "In HuggingFace Spaces, conda should be available at /opt/conda/bin/conda. "
+            "Check that setup.sh ran successfully."
+        )
+    
     env_name = f"{model_key}_env"
-    result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
-    if env_name not in result.stdout:
-        raise RuntimeError(f"Environment {env_name} not found. Check setup.sh logs.")
+    
+    # Check if environment exists (optional check - will fail later if it doesn't)
+    try:
+        result = subprocess.run(
+            [conda_path, "env", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0 and env_name not in result.stdout:
+            print(f"⚠️  Warning: {env_name} not found in conda env list. Will attempt anyway.")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not verify {env_name} exists: {e}. Will attempt anyway.")
     
     if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
         # Start new worker
         script_name = f"inference_{model_key}.py"
         
         print(f"Starting {model_key} worker in {env_name}...")
+        print(f"Using conda at: {conda_path}")
         
         proc = subprocess.Popen(
-            ["conda", "run", "-n", env_name, "python", script_name],
+            [conda_path, "run", "-n", env_name, "python", script_name],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

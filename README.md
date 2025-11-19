@@ -91,9 +91,14 @@ This Space is configured to work with private RoboEval repositories:
 
 2. **Configure Space Secrets**:
    - In your HF Space: Settings → Variables and secrets
-   - Add a **secret** (not a variable): `GH_TOKEN` = your GitHub token
-   - **Important for Docker builds**: The secret will be automatically passed as a build argument to the Dockerfile
-   - The Space will use this to install from your private RoboEval repo during the Docker build
+   - Add a **secret** (not a variable) named exactly: `GH_TOKEN`
+   - Set the value to your GitHub personal access token
+   - **Important for Docker builds**: HuggingFace Spaces should automatically pass secrets as build arguments
+   - If the build still fails with "GH_TOKEN not set", check:
+     - The secret is set as a **Secret** (not a Variable)
+     - The name is exactly `GH_TOKEN` (case-sensitive)
+     - The token has `repo` scope and is not expired
+     - Try rebuilding the Space after setting the secret
 
 3. **Checkpoint Access**:
    - Upload your Pi0 checkpoint to the Space

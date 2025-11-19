@@ -8,9 +8,20 @@ echo "===== Building RoboEval ====="
 
 # GH_TOKEN should be passed as build arg or env var
 # Check if GH_TOKEN is set (required for private repo)
-if [ -z "$GH_TOKEN" ]; then
+# Try multiple ways to get the token (build arg, env var, etc.)
+if [ -z "$GH_TOKEN" ] || [ "$GH_TOKEN" = "" ]; then
     echo "❌ ERROR: GH_TOKEN not set. Cannot clone private RoboEval repository."
-    echo "   Please set GH_TOKEN as a build secret in HuggingFace Space settings."
+    echo ""
+    echo "   Troubleshooting:"
+    echo "   1. Go to your HuggingFace Space Settings > Variables and secrets"
+    echo "   2. Add a SECRET (not variable) named exactly: GH_TOKEN"
+    echo "   3. Set the value to your GitHub personal access token"
+    echo "   4. Make sure the token has 'repo' scope"
+    echo "   5. Rebuild the Space"
+    echo ""
+    echo "   Note: For Docker builds, secrets may need to be explicitly configured."
+    echo "   If the secret is set but still not working, check HuggingFace Spaces"
+    echo "   documentation for Docker build secret configuration."
     exit 1
 fi
 

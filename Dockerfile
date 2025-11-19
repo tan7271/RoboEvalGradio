@@ -38,7 +38,8 @@ COPY build_roboeval.sh /build/
 RUN chmod +x /build/build_roboeval.sh
 
 # Build RoboEval (GH_TOKEN passed as build arg)
-# In HuggingFace Spaces, secrets need to be passed as build args
+# In HuggingFace Spaces with Docker SDK, secrets need to be passed as build args
+# IMPORTANT: You may need to configure the Space to pass secrets as build args
 # Set the secret name in Space Settings > Variables/Secrets
 ARG GH_TOKEN=""
 ENV GH_TOKEN=${GH_TOKEN} \

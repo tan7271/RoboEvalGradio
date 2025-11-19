@@ -4,6 +4,57 @@ set -e
 echo "===== Multi-Environment Setup ====="
 echo "Building OpenPI environment (OpenVLA temporarily disabled)..."
 
+# Install build dependencies first (bazel for labmaze, Rust for safetensors)
+echo ""
+echo "===== Installing Build Dependencies ====="
+
+# Install bazel (required for labmaze)
+if ! command -v bazel &> /dev/null; then
+    echo "Installing bazel..."
+    # Install bazelisk (bazel wrapper) which is easier to install
+    BAZELISK_VERSION="v1.19.0"
+    BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64"
+    mkdir -p ~/.local/bin
+    wget -q ${BAZELISK_URL} -O ~/.local/bin/bazel
+    chmod +x ~/.local/bin/bazel
+    export PATH="${HOME}/.local/bin:${PATH}"
+    echo "✓ Bazel installed"
+else
+    echo "✓ Bazel already installed"
+fi
+
+# Install Rust (required for safetensors)
+if ! command -v rustc &> /dev/null; then
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source ${HOME}/.cargo/env
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+    echo "✓ Rust installed"
+else
+    echo "✓ Rust already installed"
+    # Make sure cargo is in PATH
+    if [ -f "${HOME}/.cargo/env" ]; then
+        source ${HOME}/.cargo/env
+    fi
+fi
+
+# Try to install via apt-get if available (for additional build tools)
+if command -v apt-get &> /dev/null && [ "$EUID" -eq 0 ]; then
+    echo "Installing additional build tools via apt-get..."
+    apt-get update -qq
+    apt-get install -y -qq \
+        build-essential \
+        g++ \
+        gcc \
+        make \
+        cmake \
+        pkg-config \
+        || echo "Warning: Some build tools may not be available"
+    echo "✓ Additional build tools installed"
+else
+    echo "⚠️  Skipping apt-get installation (not root or not available)"
+fi
+
 # Check if conda is installed, install if not
 if ! command -v conda &> /dev/null; then
     echo ""
@@ -46,9 +97,13 @@ rm -rf $CLONE_DIR
 echo "Cloning RoboEval repository with submodules..."
 git clone --recurse-submodules https://${GH_TOKEN}@github.com/helen9975/RoboEval.git $CLONE_DIR
 
-# Install
+# Install RoboEval (this will build labmaze which requires bazel)
 echo "Installing RoboEval from cloned repository..."
-pip install $CLONE_DIR --no-cache-dir
+echo "Note: This may take several minutes as it builds labmaze with bazel..."
+pip install $CLONE_DIR --no-cache-dir || {
+    echo "⚠️  RoboEval installation had some errors, but continuing..."
+    echo "Some optional dependencies may not be available"
+}
 
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
 cp -r $CLONE_DIR/thirdparty $SITE_PACKAGES/

@@ -29,19 +29,61 @@ print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d
 # Verify environments exist on startup
 def verify_environments():
     """Check that conda environments exist"""
-    result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
+    # Check if conda is available
+    try:
+        conda_check = subprocess.run(
+            ["which", "conda"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if conda_check.returncode != 0:
+            # Try alternative: check if conda is in common locations
+            import shutil
+            conda_path = shutil.which("conda")
+            if not conda_path:
+                print("⚠️  Warning: conda not found in PATH. Skipping environment verification.")
+                print("  Assuming environments will be available when needed.")
+                return True, False  # Assume OpenPI exists, OpenVLA disabled
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("⚠️  Warning: Could not check for conda. Skipping environment verification.")
+        print("  Assuming environments will be available when needed.")
+        return True, False  # Assume OpenPI exists, OpenVLA disabled
     
-    has_openpi = "openpi_env" in result.stdout
-    has_openvla = "openvla_env" in result.stdout
-    
-    print("Environment check:")
-    print(f"  {'✓' if has_openpi else '✗'} openpi_env")
-    print(f"  {'✓' if has_openvla else '✗'} openvla_env (optional)")
-    
-    if not has_openpi:
-        raise RuntimeError("openpi_env not found. Check setup.sh logs.")
-    
-    return has_openpi, has_openvla
+    # If conda is available, check environments
+    try:
+        result = subprocess.run(
+            ["conda", "env", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            print(f"⚠️  Warning: conda env list failed: {result.stderr}")
+            print("  Assuming environments will be available when needed.")
+            return True, False
+        
+        has_openpi = "openpi_env" in result.stdout
+        has_openvla = "openvla_env" in result.stdout
+        
+        print("Environment check:")
+        print(f"  {'✓' if has_openpi else '✗'} openpi_env")
+        print(f"  {'✓' if has_openvla else '✗'} openvla_env (optional)")
+        
+        if not has_openpi:
+            print("⚠️  Warning: openpi_env not found in conda env list.")
+            print("  Will attempt to use it anyway - check will happen when worker starts.")
+        
+        return has_openpi, has_openvla
+        
+    except subprocess.TimeoutExpired:
+        print("⚠️  Warning: conda env list timed out. Skipping verification.")
+        return True, False
+    except Exception as e:
+        print(f"⚠️  Warning: Error checking conda environments: {e}")
+        print("  Assuming environments will be available when needed.")
+        return True, False
 
 HAS_OPENPI, HAS_OPENVLA = verify_environments()
 

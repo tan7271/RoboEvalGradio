@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: purple
 sdk: gradio
 sdk_version: "4.44.0"
-app_file: app.py
+app_file: start.py
 startup_duration_timeout: 30m
 pinned: false
 license: mit

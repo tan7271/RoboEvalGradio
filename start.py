@@ -20,7 +20,8 @@ def main():
     print("\nLaunching Gradio app...")
     
     # Import and run the app
-    from app import demo
+    from app import create_gradio_interface
+    demo = create_gradio_interface()
     demo.launch()
 
 if __name__ == "__main__":

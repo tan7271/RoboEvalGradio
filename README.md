@@ -90,9 +90,10 @@ This Space is configured to work with private RoboEval repositories:
    - Copy the token
 
 2. **Configure Space Secrets**:
-   - In your HF Space: Settings → Repository secrets
-   - Add secret: `GH_TOKEN` = your GitHub token
-   - The Space will use this to install from your private RoboEval repo
+   - In your HF Space: Settings → Variables and secrets
+   - Add a **secret** (not a variable): `GH_TOKEN` = your GitHub token
+   - **Important for Docker builds**: The secret will be automatically passed as a build argument to the Dockerfile
+   - The Space will use this to install from your private RoboEval repo during the Docker build
 
 3. **Checkpoint Access**:
    - Upload your Pi0 checkpoint to the Space

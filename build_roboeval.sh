@@ -7,21 +7,20 @@ set -e
 echo "===== Building RoboEval ====="
 
 # GH_TOKEN should be passed as build arg or env var
-GH_TOKEN=${GH_TOKEN:-""}
+# Check if GH_TOKEN is set (required for private repo)
 if [ -z "$GH_TOKEN" ]; then
-    echo "⚠️  Warning: GH_TOKEN not set. Private repo access may fail."
+    echo "❌ ERROR: GH_TOKEN not set. Cannot clone private RoboEval repository."
+    echo "   Please set GH_TOKEN as a build secret in HuggingFace Space settings."
+    exit 1
 fi
 
 CLONE_DIR="/tmp/roboeval_install"
 rm -rf $CLONE_DIR
 
-# Clone with submodules
+# Clone with submodules (using token for authentication)
 echo "Cloning RoboEval repository with submodules..."
-if [ -n "$GH_TOKEN" ]; then
-    git clone --recurse-submodules https://${GH_TOKEN}@github.com/helen9975/RoboEval.git $CLONE_DIR
-else
-    git clone --recurse-submodules https://github.com/helen9975/RoboEval.git $CLONE_DIR
-fi
+echo "Using GH_TOKEN for authentication..."
+git clone --recurse-submodules https://${GH_TOKEN}@github.com/helen9975/RoboEval.git $CLONE_DIR
 
 # Set environment variables for building
 # PyO3 compatibility for Python 3.13 (safetensors)

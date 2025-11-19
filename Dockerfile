@@ -38,13 +38,16 @@ COPY build_roboeval.sh /build/
 RUN chmod +x /build/build_roboeval.sh
 
 # Build RoboEval (GH_TOKEN passed as build arg)
-ARG GH_TOKEN
-ENV GH_TOKEN=${GH_TOKEN}
-ENV PATH="$HOME/.cargo/bin:$PATH"
-ENV USE_BAZEL_VERSION=7.5.0
-ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+# In HuggingFace Spaces, secrets need to be passed as build args
+# Set the secret name in Space Settings > Variables/Secrets
+ARG GH_TOKEN=""
+ENV GH_TOKEN=${GH_TOKEN} \
+    PATH="$HOME/.cargo/bin:$PATH" \
+    USE_BAZEL_VERSION=7.5.0 \
+    PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
-RUN /build/build_roboeval.sh
+# Source cargo env and run build script
+RUN bash -c 'source "$HOME/.cargo/env" && /build/build_roboeval.sh'
 
 # Package RoboEval artifacts for copying to runtime stage
 RUN PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \

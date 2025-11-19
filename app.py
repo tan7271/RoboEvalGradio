@@ -154,11 +154,35 @@ def find_conda():
         "/home/user/anaconda3/bin/conda",
         "/root/miniconda3/bin/conda",
         "/root/anaconda3/bin/conda",
+        "/opt/conda/condabin/conda",  # Alternative conda location
     ]
     
     for path in common_paths:
         if os.path.exists(path):
             return path
+    
+    return None
+
+
+def find_conda_env_python(env_name: str):
+    """Find Python executable in a conda environment by checking common locations."""
+    # Common conda environment locations
+    base_paths = [
+        "/opt/conda/envs",
+        "/usr/local/conda/envs",
+        "/home/user/miniconda3/envs",
+        "/home/user/anaconda3/envs",
+        "/root/miniconda3/envs",
+        "/root/anaconda3/envs",
+        os.path.expanduser("~/miniconda3/envs"),
+        os.path.expanduser("~/anaconda3/envs"),
+    ]
+    
+    for base_path in base_paths:
+        env_path = os.path.join(base_path, env_name)
+        python_path = os.path.join(env_path, "bin", "python")
+        if os.path.exists(python_path):
+            return python_path
     
     return None
 
@@ -171,50 +195,86 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
     """
     global _INFERENCE_WORKERS
     
+    env_name = f"{model_key}_env"
+    script_name = f"inference_{model_key}.py"
+    
     # Find conda executable
     conda_path = find_conda()
-    if not conda_path:
-        raise RuntimeError(
-            "conda not found. Please ensure conda is installed and available. "
-            "In HuggingFace Spaces, conda should be available at /opt/conda/bin/conda. "
-            "Check that setup.sh ran successfully."
-        )
     
-    env_name = f"{model_key}_env"
-    
-    # Check if environment exists (optional check - will fail later if it doesn't)
-    try:
-        result = subprocess.run(
-            [conda_path, "env", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0 and env_name not in result.stdout:
-            print(f"⚠️  Warning: {env_name} not found in conda env list. Will attempt anyway.")
-    except Exception as e:
-        print(f"⚠️  Warning: Could not verify {env_name} exists: {e}. Will attempt anyway.")
-    
-    if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
-        # Start new worker
-        script_name = f"inference_{model_key}.py"
+    if conda_path:
+        # Use conda if available
+        print(f"Found conda at: {conda_path}")
         
-        print(f"Starting {model_key} worker in {env_name}...")
-        print(f"Using conda at: {conda_path}")
+        # Check if environment exists (optional check - will fail later if it doesn't)
+        try:
+            result = subprocess.run(
+                [conda_path, "env", "list"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0 and env_name not in result.stdout:
+                print(f"⚠️  Warning: {env_name} not found in conda env list. Will attempt anyway.")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not verify {env_name} exists: {e}. Will attempt anyway.")
         
-        proc = subprocess.Popen(
-            [conda_path, "run", "-n", env_name, "python", script_name],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-        )
+        if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
+            print(f"Starting {model_key} worker in {env_name} using conda...")
+            
+            proc = subprocess.Popen(
+                [conda_path, "run", "-n", env_name, "python", script_name],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # Line buffered
+            )
+            
+            _INFERENCE_WORKERS[model_key] = proc
+            print(f"✓ {model_key} worker started (PID: {proc.pid})")
         
-        _INFERENCE_WORKERS[model_key] = proc
-        print(f"✓ {model_key} worker started (PID: {proc.pid})")
+        return _INFERENCE_WORKERS[model_key]
     
-    return _INFERENCE_WORKERS[model_key]
+    else:
+        # Fallback: Try to find Python in conda environment directly
+        print("⚠️  conda command not found. Attempting to find environment Python directly...")
+        env_python = find_conda_env_python(env_name)
+        
+        if env_python:
+            print(f"Found Python for {env_name} at: {env_python}")
+            
+            if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
+                print(f"Starting {model_key} worker using environment Python directly...")
+                
+                proc = subprocess.Popen(
+                    [env_python, script_name],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
+                
+                _INFERENCE_WORKERS[model_key] = proc
+                print(f"✓ {model_key} worker started (PID: {proc.pid})")
+            
+            return _INFERENCE_WORKERS[model_key]
+        
+        else:
+            # Neither conda nor environment Python found
+            raise RuntimeError(
+                f"Could not find conda or {env_name} environment.\n\n"
+                "This usually means:\n"
+                "1. setup.sh has not run yet, or\n"
+                "2. setup.sh failed to create the conda environment, or\n"
+                "3. conda is not installed in this Space.\n\n"
+                "Please check:\n"
+                "- That setup.sh ran successfully during Space build\n"
+                "- The build logs for any errors\n"
+                "- That conda is available (HuggingFace Spaces should have it at /opt/conda/bin/conda)\n\n"
+                f"Expected environment: {env_name}\n"
+                "Expected locations: /opt/conda/envs/{env_name}, ~/miniconda3/envs/{env_name}, etc."
+            )
 
 
 def cleanup_workers():

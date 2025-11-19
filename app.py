@@ -11,10 +11,47 @@ import atexit
 import dataclasses
 from dataclasses import asdict
 from typing import Callable, Dict, Optional, Tuple
-import gradio as gr
 import subprocess
 import sys
 import datetime
+
+# Verify base dependencies are available
+print("===== Checking Base Environment Dependencies =====", flush=True)
+
+try:
+    import gradio as gr
+    print(f"✓ gradio imported successfully (version: {gr.__version__})", flush=True)
+except ImportError as e:
+    print(f"✗ gradio import failed: {e}", flush=True)
+    print("ERROR: Gradio is required but not installed. Please install it:", flush=True)
+    print("  pip install gradio>=4.0.0", flush=True)
+    sys.exit(1)
+
+try:
+    import numpy
+    print(f"✓ numpy imported successfully (version: {numpy.__version__})", flush=True)
+except ImportError as e:
+    print(f"✗ numpy import failed: {e}", flush=True)
+    print("ERROR: NumPy is required but not installed.", flush=True)
+    sys.exit(1)
+
+try:
+    from PIL import Image
+    print("✓ pillow imported successfully", flush=True)
+except ImportError as e:
+    print(f"✗ pillow import failed: {e}", flush=True)
+    print("ERROR: Pillow is required but not installed.", flush=True)
+    sys.exit(1)
+
+try:
+    import huggingface_hub
+    print(f"✓ huggingface_hub imported successfully (version: {huggingface_hub.__version__})", flush=True)
+except ImportError as e:
+    print(f"✗ huggingface_hub import failed: {e}", flush=True)
+    print("ERROR: huggingface_hub is required but not installed.", flush=True)
+    sys.exit(1)
+
+print("===== All base dependencies verified successfully =====\n", flush=True)
 
 # --- Headless defaults ---
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -670,5 +707,8 @@ def create_gradio_interface():
 # ---------------------- Launch ----------------------
 if __name__ == "__main__":
     demo = create_gradio_interface()
-    demo.launch()
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+    )
 

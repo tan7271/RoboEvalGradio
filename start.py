@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """
-Startup script that runs setup.sh before launching the Gradio app.
+LOCAL DEVELOPMENT STARTUP SCRIPT
+
+This script is for LOCAL DEVELOPMENT ONLY.
+
+For HuggingFace Spaces deployment:
+  - Docker Spaces use Dockerfile and run.sh
+  - This script is NOT used in Docker Spaces
+  - Use this script only when testing locally outside Docker
+
+Usage (local development):
+  python start.py
 """
 import subprocess
 import sys

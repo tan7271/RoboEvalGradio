@@ -2,62 +2,9 @@
 # Build stage: Install build tools and build RoboEval
 # Runtime stage: Create conda envs and run app
 
-# ==================== BUILD STAGE ====================
-FROM continuumio/anaconda3:main AS builder
-
-WORKDIR /build
-
-# Install build dependencies
-RUN apt-get update -qq && \
-    apt-get install -y -qq \
-        build-essential \
-        g++ \
-        gcc \
-        make \
-        cmake \
-        pkg-config \
-        wget \
-        curl \
-        git \
-        && rm -rf /var/lib/apt/lists/*
-
-# Install Bazel (bazelisk)
-RUN BAZELISK_VERSION="v1.19.0" && \
-    BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" && \
-    mkdir -p /usr/local/bin && \
-    wget -q ${BAZELISK_URL} -O /usr/local/bin/bazel && \
-    chmod +x /usr/local/bin/bazel && \
-    export USE_BAZEL_VERSION=7.5.0
-
-# Install Rust (required for safetensors)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    export PATH="$HOME/.cargo/bin:$PATH"
-
-# Copy build script
-COPY build_roboeval.sh /build/
-RUN chmod +x /build/build_roboeval.sh
-
-# Build RoboEval (GH_TOKEN passed as build arg)
-# In HuggingFace Spaces with Docker SDK, secrets need to be passed as build args
-# IMPORTANT: You may need to configure the Space to pass secrets as build args
-# Set the secret name in Space Settings > Variables/Secrets
-ARG GH_TOKEN=""
-ENV GH_TOKEN=${GH_TOKEN} \
-    PATH="$HOME/.cargo/bin:$PATH" \
-    USE_BAZEL_VERSION=7.5.0 \
-    PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-
-# Source cargo env and run build script
-RUN bash -c 'source "$HOME/.cargo/env" && /build/build_roboeval.sh'
-
-# Package RoboEval artifacts for copying to runtime stage
-RUN PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
-    SITE_PACKAGES="/opt/conda/lib/python${PYTHON_VERSION}/site-packages" && \
-    mkdir -p /build/artifacts && \
-    cp -r ${SITE_PACKAGES}/roboeval* /build/artifacts/ 2>/dev/null || true && \
-    cp -r ${SITE_PACKAGES}/thirdparty /build/artifacts/ 2>/dev/null || true
-
 # ==================== RUNTIME STAGE ====================
+# Note: RoboEval will be installed at runtime using GH_TOKEN environment variable
+# (HuggingFace Spaces doesn't pass secrets as Docker build args)
 FROM continuumio/anaconda3:main
 
 WORKDIR /code
@@ -71,13 +18,32 @@ RUN conda install -n base -y \
         "pillow>=11.0.0" \
         "huggingface-hub>=0.20.0,<0.26.0"
 
-# Copy RoboEval artifacts from builder stage
-COPY --from=builder /build/artifacts /tmp/roboeval_artifacts
-RUN PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
-    SITE_PACKAGES="/opt/conda/lib/python${PYTHON_VERSION}/site-packages" && \
-    cp -r /tmp/roboeval_artifacts/roboeval* ${SITE_PACKAGES}/ 2>/dev/null || true && \
-    cp -r /tmp/roboeval_artifacts/thirdparty ${SITE_PACKAGES}/ 2>/dev/null || true && \
-    rm -rf /tmp/roboeval_artifacts
+# Install build tools needed for runtime RoboEval installation
+RUN apt-get update -qq && \
+    apt-get install -y -qq \
+        build-essential \
+        g++ \
+        gcc \
+        make \
+        cmake \
+        pkg-config \
+        wget \
+        curl \
+        git \
+        && rm -rf /var/lib/apt/lists/*
+
+# Install Bazel (bazelisk) for runtime RoboEval builds
+RUN BAZELISK_VERSION="v1.19.0" && \
+    BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" && \
+    mkdir -p /usr/local/bin && \
+    wget -q ${BAZELISK_URL} -O /usr/local/bin/bazel && \
+    chmod +x /usr/local/bin/bazel
+
+# Install Rust (required for safetensors) for runtime RoboEval builds
+# Install for root user, will be available system-wide
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    chmod -R 755 /root/.cargo && \
+    chmod -R 755 /root/.rustup
 
 # Copy environment YAML files
 COPY environment_openpi.yml /code/
@@ -86,24 +52,8 @@ COPY environment_openvla.yml /code/
 # Create OpenPI environment
 RUN conda env create -f /code/environment_openpi.yml
 
-# Install git-based packages in openpi_env (requires GH_TOKEN)
-ARG GH_TOKEN
-ENV GH_TOKEN=${GH_TOKEN}
-RUN if [ -n "$GH_TOKEN" ]; then \
-        conda run -n openpi_env pip install --no-cache-dir \
-            git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5 \
-            git+https://${GH_TOKEN}@github.com/tan7271/OpenPiRoboEval.git#subdirectory=packages/openpi-client --no-deps \
-            git+https://${GH_TOKEN}@github.com/tan7271/OpenPiRoboEval.git --no-deps --force-reinstall; \
-    else \
-        echo "⚠️  Warning: GH_TOKEN not set. Skipping private git installs."; \
-    fi
-
-# Install RoboEval into openpi_env
-RUN PYTHON_VERSION=$(conda run -n openpi_env python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
-    OPENPI_SITE=$(conda run -n openpi_env python -c "import site; print(site.getsitepackages()[0])") && \
-    BASE_SITE="/opt/conda/lib/python${PYTHON_VERSION}/site-packages" && \
-    cp -r ${BASE_SITE}/roboeval* ${OPENPI_SITE}/ 2>/dev/null || true && \
-    cp -r ${BASE_SITE}/thirdparty ${OPENPI_SITE}/ 2>/dev/null || true
+# Note: Git-based packages and RoboEval will be installed at runtime
+# (GH_TOKEN is available as environment variable at runtime, not build time)
 
 # Create OpenVLA environment (currently disabled - uncomment to enable)
 # RUN conda env create -f /code/environment_openvla.yml
@@ -139,6 +89,10 @@ WORKDIR $HOME/app
 
 # Copy application code
 COPY --chown=user . $HOME/app
+
+# Copy runtime installation script
+COPY --chown=user install_roboeval_runtime.sh $HOME/app/
+RUN chmod +x $HOME/app/install_roboeval_runtime.sh
 
 # Make run.sh executable
 RUN chmod +x $HOME/app/run.sh

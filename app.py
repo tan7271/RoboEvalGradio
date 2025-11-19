@@ -58,10 +58,26 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
-# Note: Model dependencies are installed in separate conda environments via setup.sh
-# This app runs in the base environment and dispatches to subprocess workers
+# Note: Model dependencies are installed in separate conda environments
+# RoboEval and git packages are installed at runtime using GH_TOKEN environment variable
 
 print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+
+# Check and install RoboEval if needed (runtime installation)
+def check_and_install_roboeval():
+    """Check if RoboEval is installed, install if missing"""
+    try:
+        import roboeval
+        print("✓ RoboEval is already installed", flush=True)
+        return True
+    except ImportError:
+        print("⚠️  RoboEval not found. Checking if installation is needed...", flush=True)
+        # RoboEval installation is handled by run.sh before app.py starts
+        # If we get here, it means installation failed or is in progress
+        return False
+
+# Check RoboEval availability
+HAS_ROBOEVAL = check_and_install_roboeval()
 
 # Verify environments exist on startup
 def verify_environments():

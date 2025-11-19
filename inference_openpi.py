@@ -42,56 +42,14 @@ except ImportError as e:
     sys.exit(1)
 
 # Import OpenPI dependencies (only available in openpi_env)
-# Try multiple possible import paths for Config
-PIConfig = None
-PIPolicy = None
-
 try:
-    # Try the most common import path
-    from openpi.training.config import Config as PIConfig
+    # Import get_config function and AssetsConfig class directly
+    from openpi.training.config import get_config, AssetsConfig
     from openpi.policies.policy_config import PIPolicy
     print("✓ OpenPI config and policy modules imported successfully", file=sys.stderr, flush=True)
-except ImportError as e1:
-    try:
-        # Try alternative import path
-        from openpi.config import Config as PIConfig
-        from openpi.policies.policy_config import PIPolicy
-        print("✓ OpenPI config and policy modules imported successfully (alternative path)", file=sys.stderr, flush=True)
-    except ImportError as e2:
-        try:
-            # Try importing the module and accessing Config as an attribute
-            import openpi.training.config as config_module
-            PIConfig = getattr(config_module, 'Config', None)
-            if PIConfig is None:
-                # Try to find any class that might be the config
-                for attr_name in dir(config_module):
-                    attr = getattr(config_module, attr_name)
-                    if isinstance(attr, type) and 'config' in attr_name.lower():
-                        PIConfig = attr
-                        print(f"✓ Found OpenPI Config as {attr_name}", file=sys.stderr, flush=True)
-                        break
-            
-            from openpi.policies.policy_config import PIPolicy
-            if PIConfig:
-                print("✓ OpenPI config and policy modules imported successfully (dynamic import)", file=sys.stderr, flush=True)
-            else:
-                raise ImportError("Could not find Config class in openpi.training.config")
-        except ImportError as e3:
-            print(f"✗ OpenPI config/policy import failed:", file=sys.stderr, flush=True)
-            print(f"  Attempt 1 (openpi.training.config): {e1}", file=sys.stderr, flush=True)
-            print(f"  Attempt 2 (openpi.config): {e2}", file=sys.stderr, flush=True)
-            print(f"  Attempt 3 (dynamic): {e3}", file=sys.stderr, flush=True)
-            # Print what's actually available in the module
-            try:
-                import openpi.training.config as config_module
-                all_attrs = [attr for attr in dir(config_module) if not attr.startswith('_')]
-                print(f"  Available in openpi.training.config (non-private): {all_attrs}", file=sys.stderr, flush=True)
-                # Check for classes
-                classes = [attr for attr in all_attrs if isinstance(getattr(config_module, attr, None), type)]
-                print(f"  Classes found: {classes}", file=sys.stderr, flush=True)
-            except Exception as inspect_error:
-                print(f"  Could not inspect module: {inspect_error}", file=sys.stderr, flush=True)
-            sys.exit(1)
+except ImportError as e:
+    print(f"✗ OpenPI config/policy import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
 
 try:
     from roboeval.action_modes import JointPositionActionMode
@@ -283,8 +241,8 @@ def load_pi0_policy(task_name: str, ckpt_path: str):
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
     
-    cfg = PIConfig.get_config("pi0_base_bimanual_droid_finetune")
-    bimanual_assets = PIConfig.AssetsConfig(
+    cfg = get_config("pi0_base_bimanual_droid_finetune")
+    bimanual_assets = AssetsConfig(
         assets_dir=f"{checkpoint_path}/assets/",
         asset_id=f"tan7271/{task_name}",
     )

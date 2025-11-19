@@ -453,17 +453,29 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     """Main loop: read requests from stdin, write results to stdout"""
+    # Print startup message to stderr so parent process knows we're ready
+    print("===== OpenPI Worker Ready =====", file=sys.stderr, flush=True)
+    print("Waiting for inference requests...", file=sys.stderr, flush=True)
+    
     while True:
         try:
             line = sys.stdin.readline()
             if not line:
+                # stdin closed - exit gracefully
+                print("===== OpenPI Worker: stdin closed, exiting =====", file=sys.stderr, flush=True)
                 break
             
             request = json.loads(line.strip())
             result = run_inference(request)
             print(json.dumps(result), flush=True)
             
+        except KeyboardInterrupt:
+            print("===== OpenPI Worker: interrupted =====", file=sys.stderr, flush=True)
+            break
         except Exception as e:
+            import traceback
+            error_msg = f"Error in worker main loop: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg, file=sys.stderr, flush=True)
             error_result = {
                 "success": False,
                 "video_path": None,

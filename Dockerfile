@@ -62,9 +62,9 @@ WORKDIR /code
 RUN conda install -n base -y \
         pip \
     && conda run -n base pip install --no-cache-dir \
-        gradio>=4.0.0 \
-        numpy>=1.22.4,<2.0.0 \
-        pillow>=11.0.0 \
+        "gradio>=4.0.0" \
+        "numpy>=1.22.4,<2.0.0" \
+        "pillow>=11.0.0" \
         "huggingface-hub>=0.20.0,<0.26.0"
 
 # Copy RoboEval artifacts from builder stage

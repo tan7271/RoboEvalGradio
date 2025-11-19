@@ -17,41 +17,88 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
+# Verify critical dependencies are available
+print("===== Checking OpenPI Environment Dependencies =====", file=sys.stderr, flush=True)
+
+try:
+    import roboeval
+    print("✓ roboeval imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ roboeval import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+try:
+    import lerobot
+    print("✓ lerobot imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ lerobot import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+try:
+    import openpi
+    print("✓ openpi imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ openpi import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
 # Import OpenPI dependencies (only available in openpi_env)
-from openpi.training.config import Config as PIConfig
-from openpi.policies.policy_config import PIPolicy
-from roboeval.action_modes import JointPositionActionMode
-from roboeval.utils.observation_config import ObservationConfig, CameraConfig
-from roboeval.robots.configs.panda import BimanualPanda
-from roboeval.roboeval_env import CONTROL_FREQUENCY_MAX
+try:
+    from openpi.training.config import Config as PIConfig
+    from openpi.policies.policy_config import PIPolicy
+    print("✓ OpenPI config and policy modules imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ OpenPI config/policy import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+try:
+    from roboeval.action_modes import JointPositionActionMode
+    from roboeval.utils.observation_config import ObservationConfig, CameraConfig
+    from roboeval.robots.configs.panda import BimanualPanda
+    from roboeval.roboeval_env import CONTROL_FREQUENCY_MAX
+    print("✓ RoboEval core modules imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ RoboEval core modules import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
 
 # Import all environment classes
-from roboeval.envs.manipulation import (
-    CubeHandover, CubeHandoverOrientation, CubeHandoverPosition,
-    CubeHandoverPositionAndOrientation, VerticalCubeHandover,
-    StackTwoBlocks, StackTwoBlocksOrientation, StackTwoBlocksPosition,
-    StackTwoBlocksPositionAndOrientation
-)
-from roboeval.envs.lift_pot import (
-    LiftPot, LiftPotOrientation, LiftPotPosition, LiftPotPositionAndOrientation,
-)
-from roboeval.envs.lift_tray import (
-    LiftTray, DragOverAndLiftTray, LiftTrayOrientation, LiftTrayPosition, LiftTrayPositionAndOrientation,
-)
-from roboeval.envs.pack_objects import (
-    PackBox, PackBoxOrientation, PackBoxPosition, PackBoxPositionAndOrientation,
-)
-from roboeval.envs.stack_books import (
-    PickSingleBookFromTable, PickSingleBookFromTableOrientation,
-    PickSingleBookFromTablePosition, PickSingleBookFromTablePositionAndOrientation,
-    StackSingleBookShelf, StackSingleBookShelfPosition, StackSingleBookShelfPositionAndOrientation,
-)
-from roboeval.envs.rotate_utility_objects import (
-    RotateValve, RotateValveObstacle, RotateValvePosition, RotateValvePositionAndOrientation,
-)
+try:
+    from roboeval.envs.manipulation import (
+        CubeHandover, CubeHandoverOrientation, CubeHandoverPosition,
+        CubeHandoverPositionAndOrientation, VerticalCubeHandover,
+        StackTwoBlocks, StackTwoBlocksOrientation, StackTwoBlocksPosition,
+        StackTwoBlocksPositionAndOrientation
+    )
+    from roboeval.envs.lift_pot import (
+        LiftPot, LiftPotOrientation, LiftPotPosition, LiftPotPositionAndOrientation,
+    )
+    from roboeval.envs.lift_tray import (
+        LiftTray, DragOverAndLiftTray, LiftTrayOrientation, LiftTrayPosition, LiftTrayPositionAndOrientation,
+    )
+    from roboeval.envs.pack_objects import (
+        PackBox, PackBoxOrientation, PackBoxPosition, PackBoxPositionAndOrientation,
+    )
+    from roboeval.envs.stack_books import (
+        PickSingleBookFromTable, PickSingleBookFromTableOrientation,
+        PickSingleBookFromTablePosition, PickSingleBookFromTablePositionAndOrientation,
+        StackSingleBookShelf, StackSingleBookShelfPosition, StackSingleBookShelfPositionAndOrientation,
+    )
+    from roboeval.envs.rotate_utility_objects import (
+        RotateValve, RotateValveObstacle, RotateValvePosition, RotateValvePositionAndOrientation,
+    )
+    print("✓ RoboEval environment classes imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ RoboEval environment classes import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
 
 # Video
-from moviepy.editor import VideoClip
+try:
+    from moviepy.editor import VideoClip
+    print("✓ moviepy imported successfully", file=sys.stderr, flush=True)
+except ImportError as e:
+    print(f"✗ moviepy import failed: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+print("===== All dependencies verified successfully =====", file=sys.stderr, flush=True)
 
 # Environment registry
 _ENV_CLASSES = {

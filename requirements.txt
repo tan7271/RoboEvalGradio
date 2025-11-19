@@ -5,7 +5,9 @@
 gradio>=4.0.0
 numpy>=1.22.4,<2.0.0
 pillow>=11.0.0
-huggingface-hub>=0.36.0
+# Pin huggingface-hub to version compatible with Gradio (HfFolder was removed in 0.26.0+)
+# Gradio 4.x requires huggingface-hub < 0.26.0
+huggingface-hub>=0.20.0,<0.26.0
 
 # Note: OpenPI and OpenVLA dependencies are installed in separate conda environments
 # See requirements_openpi.txt and requirements_openvla.txt

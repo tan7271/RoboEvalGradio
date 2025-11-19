@@ -1,8 +1,6 @@
 # OpenPI environment dependencies
-# PyTorch 2.7.0 for OpenPI
-torch==2.7.0
-torchvision==0.20.0
-torchaudio==2.7.0
+# PyTorch 2.7.0+ for OpenPI (working version from user's tested setup)
+torch>=2.7.0
 
 # JAX and ML utilities
 jax[cuda12]==0.5.3
@@ -39,11 +37,10 @@ transformers==4.48.1
 rich>=14.0.0
 polars>=1.30.0
 
-# Hugging Face
+# Hugging Face (simplified versions)
 datasets==3.6.0
-huggingface-hub>=0.36.0
+huggingface-hub==0.34.4
 diffusers==0.26.3
-tokenizers>=0.19.1
 
 # Utilities
 hydra-core==1.3.2

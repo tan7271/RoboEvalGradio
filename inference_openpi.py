@@ -517,15 +517,19 @@ def main():
             if not line.strip():
                 continue
             
+            # Debug: log what we received
+            print(f"DEBUG: Received line: {repr(line[:200])}", file=sys.stderr, flush=True)
+            
             try:
                 request = json.loads(line.strip())
             except json.JSONDecodeError as e:
                 # Invalid JSON request - send error response
+                print(f"DEBUG: JSON decode error. Line content: {repr(line[:500])}", file=sys.stderr, flush=True)
                 error_result = {
                     "success": False,
                     "video_path": None,
                     "status_message": f"❌ Invalid JSON request: {str(e)}",
-                    "error": f"JSON decode error: {str(e)}"
+                    "error": f"JSON decode error: {str(e)}. Received: {line[:200]}"
                 }
                 print(json.dumps(error_result), flush=True)
                 continue

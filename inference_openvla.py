@@ -165,6 +165,74 @@ _ENV_CLASSES = {
 _MODEL_CACHE = {}
 
 
+def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
+    """
+    Return a local path to the OpenVLA checkpoint.
+    Downloads from Hugging Face Hub if not provided.
+    """
+    if ckpt_path:
+        return ckpt_path
+
+    from huggingface_hub import HfApi, hf_hub_download
+
+    repo_id = "tan7271/OpenVLA_models"
+    revision = "main"
+    # Hardcoded subdirectory as requested
+    subdir = "openvla-7b+handover_cube_static_delta+b16+lr-0.0005+lora-r32+dropout-0.0--image_aug"
+    cache_dir = os.path.expanduser("~/.cache/roboeval/openvla_checkpoints")
+
+    api = HfApi()
+    try:
+        all_files: List[str] = api.list_repo_files(
+            repo_id=repo_id, revision=revision, repo_type="model"
+        )
+    except Exception as e:
+        raise RuntimeError(f"Could not list files for {repo_id}@{revision}: {e}")
+
+    # Find all files under the subdirectory
+    wanted = [p for p in all_files if p.startswith(subdir + "/")]
+
+    if not wanted:
+        # List some example paths for debugging
+        example_paths = [p for p in all_files if "/" in p][:10]
+        raise FileNotFoundError(
+            f"No files found under '{subdir}/' in {repo_id}@{revision}. "
+            f"Example paths I do see: {example_paths}"
+        )
+
+    manual_root = os.path.join(cache_dir, "manual")
+    os.makedirs(manual_root, exist_ok=True)
+
+    # Download all files in the subdirectory
+    for relpath in wanted:
+        hf_hub_download(
+            repo_id=repo_id,
+            filename=relpath,
+            revision=revision,
+            repo_type="model",
+            local_dir=manual_root,
+            local_dir_use_symlinks=True,
+        )
+
+    manual_ckpt_dir = os.path.join(manual_root, subdir)
+
+    def _nonempty_dir(path: str) -> bool:
+        return os.path.isdir(path) and any(True for _ in os.scandir(path))
+
+    if not _nonempty_dir(manual_ckpt_dir):
+        try:
+            siblings = [e.name for e in os.scandir(os.path.dirname(manual_ckpt_dir))]
+        except Exception:
+            siblings = []
+        raise FileNotFoundError(
+            f"Downloaded files, but '{manual_ckpt_dir}' is missing/empty.\n"
+            f"Siblings present: {siblings}\n"
+            f"(repo_id={repo_id}, subdir={subdir})"
+        )
+
+    return manual_ckpt_dir
+
+
 def register_openvla() -> None:
     """Register OpenVLA components with the Transformers library."""
     AutoConfig.register("openvla", OpenVLAConfig)
@@ -311,15 +379,6 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
         fps = int(request["fps"])
         custom_instruction = request.get("custom_instruction") or None
         
-        # Validate checkpoint path
-        if not checkpoint_path:
-            return {
-                "success": False,
-                "video_path": None,
-                "status_message": "❌ Checkpoint path is required for OpenVLA",
-                "error": "Checkpoint path is required"
-            }
-        
         # Validate task
         if task_name not in _ENV_CLASSES:
             return {
@@ -328,6 +387,9 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
                 "status_message": f"❌ Unknown task: {task_name}",
                 "error": f"Unknown task: {task_name}"
             }
+        
+        # Get checkpoint path (downloads from Hugging Face Hub if not provided)
+        checkpoint_path = get_checkpoint_path(task_name, checkpoint_path)
         
         # Register OpenVLA components
         register_openvla()

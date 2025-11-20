@@ -893,7 +893,7 @@ if HAS_OPENVLA:
         description=(
             "Runs the OpenVLA (Open Vision-Language-Action) policy. "
             "OpenVLA is a vision-language-action model for robot manipulation tasks. "
-            "**Checkpoint path is required** - provide a path to an OpenVLA checkpoint directory."
+            "**Checkpoint path is optional** - if not provided, will download from Hugging Face Hub automatically."
         ),
         run_inference=run_openvla_inference,
     )
@@ -956,7 +956,7 @@ def create_gradio_interface():
         
         **Checkpoint Paths**:
         - **OpenPI**: Leave empty to auto-download from `tan7271/pi0_base_checkpoints`, or provide a custom path
-        - **OpenVLA**: **Required** - provide a path to an OpenVLA checkpoint directory
+        - **OpenVLA**: **Optional** - if not provided, will download from Hugging Face Hub automatically
         """)
         
         with gr.Row():

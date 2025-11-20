@@ -108,80 +108,39 @@ if conda env list | grep -q "openpi_env"; then
         echo "⚠️  Warning: Failed to install some additional dependencies in openpi_env"
     }
     
-    # Copy RoboEval to openpi_env
-    # Use a Python script via conda run to handle permissions correctly
-    echo "Copying RoboEval to openpi_env..."
+    # Install RoboEval directly into openpi_env (handles permissions and dependencies automatically)
+    echo "Installing RoboEval into openpi_env..."
+    # Set environment variables for building
+    export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+    export USE_BAZEL_VERSION=7.5.0
     
-    # Get site-packages locations
-    OPENPI_SITE=$(conda run -n openpi_env python -c "import site; print(site.getsitepackages()[0])")
-    echo "Target site-packages: ${OPENPI_SITE}"
-    
-    # Find thirdparty source
-    THIRDPARTY_SOURCE=""
-    if [ -d "${SITE_PACKAGES}/thirdparty" ]; then
-        THIRDPARTY_SOURCE="${SITE_PACKAGES}/thirdparty"
-    elif [ -d "$CLONE_DIR/thirdparty" ]; then
-        THIRDPARTY_SOURCE="$CLONE_DIR/thirdparty"
+    # Ensure Bazel is in PATH
+    if [ -f "/usr/local/bin/bazel" ]; then
+        export PATH="/usr/local/bin:${PATH}"
     fi
     
-    # Create a temporary Python script to do the copying (runs with conda run permissions)
-    COPY_SCRIPT=$(mktemp)
-    cat > "$COPY_SCRIPT" << 'PYEOF'
-import shutil
-import sys
-import os
-import glob
-
-source_site = sys.argv[1]
-target_site = sys.argv[2]
-thirdparty_source = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
-
-# Copy roboeval packages
-roboeval_pattern = os.path.join(source_site, "roboeval*")
-for path in glob.glob(roboeval_pattern):
-    dest = os.path.join(target_site, os.path.basename(path))
-    try:
-        if os.path.isdir(path):
-            if os.path.exists(dest):
-                shutil.rmtree(dest)
-            shutil.copytree(path, dest)
-        else:
-            shutil.copy2(path, dest)
-        print(f"Copied: {os.path.basename(path)}")
-    except Exception as e:
-        print(f"Warning: Failed to copy {path}: {e}")
-
-# Copy thirdparty directory
-if thirdparty_source and os.path.isdir(thirdparty_source):
-    thirdparty_dest = os.path.join(target_site, "thirdparty")
-    try:
-        if os.path.exists(thirdparty_dest):
-            shutil.rmtree(thirdparty_dest)
-        shutil.copytree(thirdparty_source, thirdparty_dest)
-        print(f"Copied: thirdparty directory")
-    except Exception as e:
-        print(f"Error: Failed to copy thirdparty: {e}")
-        sys.exit(1)
-elif thirdparty_source:
-    print(f"Warning: thirdparty source not found: {thirdparty_source}")
-PYEOF
-
-    # Run the copy script using conda run
-    conda run -n openpi_env python "$COPY_SCRIPT" "${SITE_PACKAGES}" "${OPENPI_SITE}" "${THIRDPARTY_SOURCE}" || {
-        echo "⚠️  Warning: Copy script had errors"
+    # Source cargo env if it exists
+    if [ -f "/root/.cargo/env" ]; then
+        source /root/.cargo/env
+    fi
+    
+    # Install RoboEval into openpi_env
+    # Pass CLONE_DIR as an environment variable to the subshell
+    CLONE_DIR_ESC=$(echo "$CLONE_DIR" | sed 's/"/\\"/g')
+    conda run -n openpi_env bash -c "
+        export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1;
+        export USE_BAZEL_VERSION=7.5.0;
+        export PATH=\"/usr/local/bin:\$PATH\";
+        if [ -f \"/root/.cargo/env\" ]; then source /root/.cargo/env; fi;
+        pip install \"${CLONE_DIR_ESC}\" --no-cache-dir || {
+            echo '⚠️  RoboEval installation had some errors, but continuing...';
+            pip install safetensors --only-binary :all: || pip install 'safetensors>=0.4.1' --no-build-isolation || true;
+        }
+    " || {
+        echo "⚠️  Warning: RoboEval installation into openpi_env had errors"
     }
     
-    # Clean up
-    rm -f "$COPY_SCRIPT"
-    
-    # Verify thirdparty was copied
-    if conda run -n openpi_env python -c "import os; print('OK' if os.path.exists('${OPENPI_SITE}/thirdparty') else 'MISSING')" 2>/dev/null | grep -q "OK"; then
-        echo "✓ thirdparty directory copied successfully"
-    else
-        echo "⚠️  Warning: thirdparty directory verification failed"
-    fi
-    
-    echo "✓ RoboEval copied to openpi_env"
+    echo "✓ RoboEval installed in openpi_env"
 fi
 
 echo "✓ RoboEval installation complete"

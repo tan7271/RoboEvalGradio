@@ -86,6 +86,15 @@ if conda env list | grep -q "openpi_env"; then
         echo "⚠️  Warning: Failed to install git packages in openpi_env"
     }
     
+    # Install missing pip-only dependencies that may not be in the environment file yet
+    # Note: torchvision and torchaudio should be installed via conda, not pip
+    echo "Installing additional OpenPI dependencies in openpi_env..."
+    conda run -n openpi_env pip install --no-cache-dir \
+        draccus>=0.1.0 \
+        jsonlines>=4.0.0 || {
+        echo "⚠️  Warning: Failed to install some additional dependencies in openpi_env"
+    }
+    
     # Copy RoboEval to openpi_env
     OPENPI_SITE=$(conda run -n openpi_env python -c "import site; print(site.getsitepackages()[0])")
     cp -r ${SITE_PACKAGES}/roboeval* ${OPENPI_SITE}/ 2>/dev/null || true

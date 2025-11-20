@@ -59,6 +59,7 @@ dependencies:
     # Utilities
     - hydra-core==1.3.2
     - omegaconf==2.3.0
+    - draccus>=0.1.0
     - pyquaternion==0.9.9
     - click==8.2.1
     - click-prompt==0.6.5

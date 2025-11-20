@@ -140,6 +140,31 @@ if conda env list | grep -q "openpi_env"; then
         echo "⚠️  Warning: RoboEval installation into openpi_env had errors"
     }
     
+    # Also copy thirdparty to user's local site-packages (Python might check there too)
+    echo "Copying thirdparty to user's local site-packages..."
+    USER_SITE_PACKAGES="/home/user/.local/lib/python3.12/site-packages"
+    mkdir -p "$USER_SITE_PACKAGES" 2>/dev/null || true
+    
+    # Find thirdparty source
+    THIRDPARTY_SOURCE=""
+    if [ -d "${SITE_PACKAGES}/thirdparty" ]; then
+        THIRDPARTY_SOURCE="${SITE_PACKAGES}/thirdparty"
+    elif [ -d "$CLONE_DIR/thirdparty" ]; then
+        THIRDPARTY_SOURCE="$CLONE_DIR/thirdparty"
+    fi
+    
+    if [ -n "$THIRDPARTY_SOURCE" ] && [ -d "$THIRDPARTY_SOURCE" ]; then
+        # Copy to user's local site-packages (user has write access here)
+        cp -r "$THIRDPARTY_SOURCE" "$USER_SITE_PACKAGES/" 2>/dev/null || {
+            echo "⚠️  Warning: Failed to copy thirdparty to user site-packages"
+        }
+        
+        # Verify
+        if [ -d "$USER_SITE_PACKAGES/thirdparty" ]; then
+            echo "✓ thirdparty copied to user site-packages: $USER_SITE_PACKAGES"
+        fi
+    fi
+    
     echo "✓ RoboEval installed in openpi_env"
 fi
 

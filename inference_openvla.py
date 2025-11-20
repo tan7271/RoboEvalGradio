@@ -2,17 +2,33 @@
 OpenVLA Inference Worker - Runs in openvla_env
 Receives inference requests via stdin, returns results to stdout
 """
-import sys
-import json
-import os
-import tempfile
-import copy
-import numpy as np
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
-
-# Print early startup message so parent knows we're starting
-print("===== OpenVLA Worker: Starting up... =====", file=sys.stderr, flush=True)
+# Wrap everything in a try-except to catch any fatal errors during module import
+try:
+    import sys
+    import json
+    import os
+    import tempfile
+    import copy
+    
+    # Print early startup message so parent knows we're starting
+    # Do this immediately after importing sys
+    print("===== OpenVLA Worker: Starting up... =====", file=sys.stderr, flush=True)
+    sys.stderr.flush()  # Force flush
+    
+    import numpy as np
+    from pathlib import Path
+    from typing import Dict, Any, List, Optional, Tuple
+except Exception as e:
+    # If we can't even import basic modules, try to print error
+    try:
+        import sys
+        import traceback
+        print(f"✗ FATAL: Failed to import basic modules: {e}", file=sys.stderr, flush=True)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
+        sys.stderr.flush()
+    except:
+        pass  # If we can't even print, give up
+    sys.exit(1)
 
 # Set headless mode
 os.environ.setdefault("MUJOCO_GL", "egl")

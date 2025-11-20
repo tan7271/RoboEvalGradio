@@ -233,6 +233,36 @@ def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
     return manual_ckpt_dir
 
 
+def clear_gpu_memory():
+    """Clear JAX GPU memory and policy cache."""
+    global _POLICY_CACHE
+    
+    # Clear the policy cache
+    _POLICY_CACHE.clear()
+    
+    # Force JAX to clear GPU memory
+    try:
+        import jax
+        import gc
+        
+        # Clear JAX compilation caches
+        try:
+            jax.clear_caches()
+        except AttributeError:
+            # Fallback for older JAX versions
+            try:
+                jax.clear_backends()
+            except AttributeError:
+                pass  # Neither method available, rely on gc
+        
+        # Force Python garbage collection
+        gc.collect()
+        
+        print("GPU memory cleared successfully", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"Warning: Could not fully clear GPU memory: {e}", file=sys.stderr, flush=True)
+
+
 def load_pi0_policy(task_name: str, ckpt_path: str):
     """Load Pi0 policy model for the given task."""
     checkpoint_path = get_checkpoint_path(task_name, ckpt_path)
@@ -240,6 +270,11 @@ def load_pi0_policy(task_name: str, ckpt_path: str):
     cache_key = f"{task_name}:{checkpoint_path}"
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
+    
+    # Clear old policies from cache to free GPU memory for new task
+    if len(_POLICY_CACHE) > 0:
+        print(f"Clearing {len(_POLICY_CACHE)} cached model(s) to free GPU memory...", file=sys.stderr, flush=True)
+        clear_gpu_memory()
     
     cfg = _config.get_config("pi0_base_bimanual_droid_finetune")
     bimanual_assets = _config.AssetsConfig(
@@ -427,6 +462,12 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Cleanup
         env.close()
+        
+        # Clear GPU memory after inference to prevent OOM on next run
+        import gc
+        gc.collect()
+        # Note: We don't clear the policy cache here to allow reuse of the same model
+        # The cache will be cleared when loading a different task
         
         status = f"✅ **Inference Complete!**\n\n"
         status += f"- **Task**: {task_name}\n"

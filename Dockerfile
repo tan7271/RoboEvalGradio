@@ -71,6 +71,9 @@ RUN conda env create -f /code/environment_openpi.yml
 # Set up non-root user
 RUN useradd -m -u 1000 user
 
+# Give user write access to conda environments (needed for runtime installation)
+RUN chmod -R u+w /opt/conda/envs/ 2>/dev/null || true
+
 # Switch to non-root user
 USER user
 

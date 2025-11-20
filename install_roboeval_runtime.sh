@@ -109,21 +109,14 @@ if conda env list | grep -q "openpi_env"; then
     }
     
     # Copy RoboEval to openpi_env
+    # Use a Python script via conda run to handle permissions correctly
+    echo "Copying RoboEval to openpi_env..."
+    
+    # Get site-packages locations
     OPENPI_SITE=$(conda run -n openpi_env python -c "import site; print(site.getsitepackages()[0])")
-    echo "Copying RoboEval to openpi_env site-packages: ${OPENPI_SITE}"
+    echo "Target site-packages: ${OPENPI_SITE}"
     
-    # Also check user's local site-packages (Python might use this)
-    USER_SITE=$(conda run -n openpi_env python -c "import site; sites = site.getsitepackages(); user_site = [s for s in sites if 'local' in s]; print(user_site[0] if user_site else '')" 2>/dev/null || echo "")
-    
-    # Copy roboeval packages
-    cp -r ${SITE_PACKAGES}/roboeval* ${OPENPI_SITE}/ 2>/dev/null || true
-    if [ -n "$USER_SITE" ] && [ "$USER_SITE" != "$OPENPI_SITE" ]; then
-        echo "Also copying to user site-packages: ${USER_SITE}"
-        mkdir -p ${USER_SITE} 2>/dev/null || true
-        cp -r ${SITE_PACKAGES}/roboeval* ${USER_SITE}/ 2>/dev/null || true
-    fi
-    
-    # Copy thirdparty directory (critical for mujoco_menagerie)
+    # Find thirdparty source
     THIRDPARTY_SOURCE=""
     if [ -d "${SITE_PACKAGES}/thirdparty" ]; then
         THIRDPARTY_SOURCE="${SITE_PACKAGES}/thirdparty"
@@ -131,29 +124,61 @@ if conda env list | grep -q "openpi_env"; then
         THIRDPARTY_SOURCE="$CLONE_DIR/thirdparty"
     fi
     
-    if [ -n "$THIRDPARTY_SOURCE" ]; then
-        echo "Copying thirdparty directory from ${THIRDPARTY_SOURCE}..."
-        # Copy to conda environment site-packages
-        cp -r ${THIRDPARTY_SOURCE} ${OPENPI_SITE}/ || {
-            echo "⚠️  Warning: Failed to copy thirdparty directory to ${OPENPI_SITE}"
-        }
-        # Also copy to user site-packages if different
-        if [ -n "$USER_SITE" ] && [ "$USER_SITE" != "$OPENPI_SITE" ]; then
-            echo "Also copying thirdparty to user site-packages: ${USER_SITE}"
-            cp -r ${THIRDPARTY_SOURCE} ${USER_SITE}/ || {
-                echo "⚠️  Warning: Failed to copy thirdparty directory to ${USER_SITE}"
-            }
-        fi
-        
-        # Verify it was copied
-        if [ -d "${OPENPI_SITE}/thirdparty" ]; then
-            echo "✓ thirdparty directory copied to ${OPENPI_SITE}"
-        fi
-        if [ -n "$USER_SITE" ] && [ -d "${USER_SITE}/thirdparty" ]; then
-            echo "✓ thirdparty directory copied to ${USER_SITE}"
-        fi
+    # Create a temporary Python script to do the copying (runs with conda run permissions)
+    COPY_SCRIPT=$(mktemp)
+    cat > "$COPY_SCRIPT" << 'PYEOF'
+import shutil
+import sys
+import os
+import glob
+
+source_site = sys.argv[1]
+target_site = sys.argv[2]
+thirdparty_source = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
+
+# Copy roboeval packages
+roboeval_pattern = os.path.join(source_site, "roboeval*")
+for path in glob.glob(roboeval_pattern):
+    dest = os.path.join(target_site, os.path.basename(path))
+    try:
+        if os.path.isdir(path):
+            if os.path.exists(dest):
+                shutil.rmtree(dest)
+            shutil.copytree(path, dest)
+        else:
+            shutil.copy2(path, dest)
+        print(f"Copied: {os.path.basename(path)}")
+    except Exception as e:
+        print(f"Warning: Failed to copy {path}: {e}")
+
+# Copy thirdparty directory
+if thirdparty_source and os.path.isdir(thirdparty_source):
+    thirdparty_dest = os.path.join(target_site, "thirdparty")
+    try:
+        if os.path.exists(thirdparty_dest):
+            shutil.rmtree(thirdparty_dest)
+        shutil.copytree(thirdparty_source, thirdparty_dest)
+        print(f"Copied: thirdparty directory")
+    except Exception as e:
+        print(f"Error: Failed to copy thirdparty: {e}")
+        sys.exit(1)
+elif thirdparty_source:
+    print(f"Warning: thirdparty source not found: {thirdparty_source}")
+PYEOF
+
+    # Run the copy script using conda run
+    conda run -n openpi_env python "$COPY_SCRIPT" "${SITE_PACKAGES}" "${OPENPI_SITE}" "${THIRDPARTY_SOURCE}" || {
+        echo "⚠️  Warning: Copy script had errors"
+    }
+    
+    # Clean up
+    rm -f "$COPY_SCRIPT"
+    
+    # Verify thirdparty was copied
+    if conda run -n openpi_env python -c "import os; print('OK' if os.path.exists('${OPENPI_SITE}/thirdparty') else 'MISSING')" 2>/dev/null | grep -q "OK"; then
+        echo "✓ thirdparty directory copied successfully"
     else
-        echo "⚠️  Warning: thirdparty directory not found in ${SITE_PACKAGES}/thirdparty or ${CLONE_DIR}/thirdparty"
+        echo "⚠️  Warning: thirdparty directory verification failed"
     fi
     
     echo "✓ RoboEval copied to openpi_env"

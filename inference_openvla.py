@@ -18,6 +18,17 @@ try:
     import numpy as np
     from pathlib import Path
     from typing import Dict, Any, List, Optional, Tuple
+    
+    # Set headless mode BEFORE importing any graphics libraries
+    # These must be set before mujoco or any OpenGL libraries are imported
+    # Try OSMesa first (more reliable in Docker), fallback to egl
+    os.environ.setdefault("MUJOCO_GL", "osmesa")  # OSMesa is more reliable than EGL in Docker
+    os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+    os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
+    # Additional headless rendering environment variables
+    os.environ.setdefault("DISPLAY", ":99")
+    os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+    os.environ.setdefault("GALLIUM_DRIVER", "llvmpipe")
 except Exception as e:
     # If we can't even import basic modules, try to print error
     try:
@@ -29,11 +40,6 @@ except Exception as e:
     except:
         pass  # If we can't even print, give up
     sys.exit(1)
-
-# Set headless mode
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 
 # Verify critical dependencies are available
 # Redirect stdout during imports to prevent libraries from printing to stdout
@@ -116,6 +122,18 @@ try:
         print("✓ RoboEval core modules imported successfully", file=sys.stderr, flush=True)
     except ImportError as e:
         print(f"✗ RoboEval core modules import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    except Exception as e:
+        # Catch EGL/OpenGL errors during import
+        import traceback
+        error_msg = str(e)
+        if "egl" in error_msg.lower() or "opengl" in error_msg.lower() or "NoneType" in error_msg:
+            print(f"✗ RoboEval core modules import failed (graphics/EGL error): {e}", file=sys.stderr, flush=True)
+            print(f"  This may be due to EGL/OpenGL initialization issues in headless mode.", file=sys.stderr, flush=True)
+            print(f"  Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
+        else:
+            print(f"✗ RoboEval core modules import failed: {e}", file=sys.stderr, flush=True)
+            print(f"  Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
         sys.exit(1)
 
     # Import all environment classes

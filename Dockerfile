@@ -19,6 +19,7 @@ RUN conda install -n base -y \
         "huggingface-hub>=0.20.0,<0.26.0"
 
 # Install build tools needed for runtime RoboEval installation
+# Also install OSMesa for headless OpenGL rendering (required for mujoco)
 RUN apt-get update -qq && \
     apt-get install -y -qq \
         build-essential \
@@ -30,6 +31,9 @@ RUN apt-get update -qq && \
         wget \
         curl \
         git \
+        libosmesa6-dev \
+        libgl1-mesa-glx \
+        libglib2.0-0 \
         && rm -rf /var/lib/apt/lists/*
 
 # Install Bazel (bazelisk) for runtime RoboEval builds

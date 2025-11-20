@@ -40,10 +40,13 @@ RUN BAZELISK_VERSION="v1.19.0" && \
     chmod +x /usr/local/bin/bazel
 
 # Install Rust (required for safetensors) for runtime RoboEval builds
-# Install for root user, will be available system-wide
+# Install for root user, make available system-wide
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     chmod -R 755 /root/.cargo && \
-    chmod -R 755 /root/.rustup
+    chmod -R 755 /root/.rustup && \
+    # Add Rust to system PATH so it's available to all users
+    echo 'export PATH="/root/.cargo/bin:$PATH"' >> /etc/profile.d/rust.sh && \
+    chmod +x /etc/profile.d/rust.sh
 
 # Copy environment YAML files
 COPY environment_openpi.yml /code/
@@ -83,7 +86,8 @@ ENV HOME=/home/user \
     MUJOCO_GL=egl \
     PYOPENGL_PLATFORM=egl \
     XDG_RUNTIME_DIR=/tmp \
-    OMP_NUM_THREADS=1
+    OMP_NUM_THREADS=1 \
+    PATH="/root/.cargo/bin:${PATH}"
 
 # Set working directory
 WORKDIR $HOME/app

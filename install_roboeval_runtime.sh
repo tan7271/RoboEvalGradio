@@ -46,16 +46,29 @@ if ! command -v bazel &> /dev/null; then
 fi
 
 # Check if Rust is available (should be in /root/.cargo if installed in Dockerfile)
-if ! command -v cargo &> /dev/null; then
-    if [ -f "/root/.cargo/env" ]; then
-        source /root/.cargo/env
-        export PATH="/root/.cargo/bin:${PATH}"
-    elif [ -f "${HOME}/.cargo/env" ]; then
-        source ${HOME}/.cargo/env
-        export PATH="${HOME}/.cargo/bin:${PATH}"
-    else
-        echo "⚠️  Warning: Rust/Cargo not found. RoboEval installation may fail."
-    fi
+# Rust is installed in /root/.cargo but script may run as non-root user
+# Add to PATH directly if the bin directory exists and is readable
+if [ -d "/root/.cargo/bin" ] && [ -x "/root/.cargo/bin/cargo" ]; then
+    export PATH="/root/.cargo/bin:${PATH}"
+    echo "✓ Added /root/.cargo/bin to PATH"
+elif [ -f "/root/.cargo/env" ]; then
+    # Try to source if we have permission
+    source /root/.cargo/env 2>/dev/null || export PATH="/root/.cargo/bin:${PATH}"
+    echo "✓ Sourced Rust environment from /root/.cargo/env"
+elif [ -f "${HOME}/.cargo/env" ]; then
+    source ${HOME}/.cargo/env
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+    echo "✓ Sourced Rust environment from ${HOME}/.cargo/env"
+fi
+
+# Verify Rust is available
+if command -v cargo &> /dev/null; then
+    echo "✓ Rust/Cargo found: $(which cargo)"
+    cargo --version || true
+else
+    echo "⚠️  Warning: Rust/Cargo not found. RoboEval installation may fail."
+    echo "   Checked paths: /root/.cargo/bin, /root/.cargo/env, ${HOME}/.cargo/env"
+    echo "   PATH: ${PATH}"
 fi
 
 # Install RoboEval

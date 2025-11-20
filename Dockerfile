@@ -58,15 +58,11 @@ RUN conda env create -f /code/environment_openpi.yml
 # Note: Git-based packages and RoboEval will be installed at runtime
 # (GH_TOKEN is available as environment variable at runtime, not build time)
 
-# Create OpenVLA environment (currently disabled - uncomment to enable)
-# RUN conda env create -f /code/environment_openvla.yml
-# RUN conda run -n openvla_env pip install --no-cache-dir \
-#         git+https://github.com/openvla/openvla.git
-# RUN PYTHON_VERSION=$(conda run -n openvla_env python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
-#     OPENVLA_SITE=$(conda run -n openvla_env python -c "import site; print(site.getsitepackages()[0])") && \
-#     BASE_SITE="/opt/conda/lib/python${PYTHON_VERSION}/site-packages" && \
-#     cp -r ${BASE_SITE}/roboeval* ${OPENVLA_SITE}/ 2>/dev/null || true && \
-#     cp -r ${BASE_SITE}/thirdparty ${OPENVLA_SITE}/ 2>/dev/null || true
+# Create OpenVLA environment
+RUN conda env create -f /code/environment_openvla.yml
+
+# Note: OpenVLA git installation and RoboEval will be installed at runtime
+# (GH_TOKEN is available as environment variable at runtime, not build time)
 
 # Set up non-root user
 RUN useradd -m -u 1000 user

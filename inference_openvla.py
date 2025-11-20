@@ -383,24 +383,104 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     """Main loop: read requests from stdin, write results to stdout"""
+    # Print startup message to stderr so parent process knows we're ready
+    print("===== OpenVLA Worker Ready =====", file=sys.stderr, flush=True)
+    print("Waiting for inference requests...", file=sys.stderr, flush=True)
+    
+    # Ensure stdin is in text mode and properly buffered
+    if sys.stdin.isatty():
+        # If stdin is a TTY, this shouldn't happen in subprocess context
+        print("⚠️  Warning: stdin is a TTY, not a pipe", file=sys.stderr, flush=True)
+    
     while True:
         try:
+            # Read a line from stdin (this will block until data is available or EOF)
             line = sys.stdin.readline()
             if not line:
+                # stdin closed (EOF) - exit gracefully
+                print("===== OpenVLA Worker: stdin closed (EOF), exiting =====", file=sys.stderr, flush=True)
                 break
             
-            request = json.loads(line.strip())
-            result = run_inference(request)
-            print(json.dumps(result), flush=True)
+            # Skip empty lines
+            if not line.strip():
+                continue
             
+            # Debug: log what we received
+            print(f"DEBUG: Received line: {repr(line[:200])}", file=sys.stderr, flush=True)
+            
+            try:
+                request = json.loads(line.strip())
+            except json.JSONDecodeError as e:
+                # Invalid JSON request - send error response
+                print(f"DEBUG: JSON decode error. Line content: {repr(line[:500])}", file=sys.stderr, flush=True)
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": f"❌ Invalid JSON request: {str(e)}",
+                    "error": f"JSON decode error: {str(e)}. Received: {line[:200]}"
+                }
+                print(json.dumps(error_result), flush=True)
+                continue
+            
+            try:
+                task_name = request.get('task_name', 'unknown')
+                print(f"DEBUG: Starting inference for task: {task_name}", file=sys.stderr, flush=True)
+                
+                # Redirect stdout temporarily to capture any output from the environment
+                # This prevents environment output from interfering with our JSON protocol
+                import io
+                from contextlib import redirect_stdout
+                
+                # Capture any stdout from the environment during inference
+                stdout_capture = io.StringIO()
+                try:
+                    with redirect_stdout(stdout_capture):
+                        result = run_inference(request)
+                finally:
+                    # Check if anything was printed to stdout (this shouldn't happen, but log it if it does)
+                    captured_output = stdout_capture.getvalue()
+                    if captured_output:
+                        print(f"⚠️  WARNING: Environment printed to stdout during inference: {repr(captured_output[:500])}", file=sys.stderr, flush=True)
+                        # If we captured output, it means something printed to stdout
+                        # This could interfere with our JSON protocol, so log it
+                
+                print(f"DEBUG: Inference completed for {task_name}, sending result", file=sys.stderr, flush=True)
+                result_json = json.dumps(result)
+                print(result_json, flush=True)
+                print(f"DEBUG: Result sent successfully for {task_name}", file=sys.stderr, flush=True)
+            except Exception as e:
+                # Error during inference - send error response as JSON
+                import traceback
+                error_msg = f"Error in worker inference: {str(e)}\n{traceback.format_exc()}"
+                print(error_msg, file=sys.stderr, flush=True)
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": f"❌ Worker error: {str(e)}",
+                    "error": str(e)
+                }
+                error_json = json.dumps(error_result)
+                print(error_json, flush=True)
+                print(f"DEBUG: Error result sent successfully", file=sys.stderr, flush=True)
+            
+        except KeyboardInterrupt:
+            print("===== OpenVLA Worker: interrupted =====", file=sys.stderr, flush=True)
+            break
         except Exception as e:
-            error_result = {
-                "success": False,
-                "video_path": None,
-                "status_message": "❌ Worker error",
-                "error": str(e)
-            }
-            print(json.dumps(error_result), flush=True)
+            # Fatal error in main loop - try to send error response before exiting
+            import traceback
+            error_msg = f"Fatal error in worker main loop: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg, file=sys.stderr, flush=True)
+            try:
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": "❌ Worker fatal error",
+                    "error": str(e)
+                }
+                print(json.dumps(error_result), flush=True)
+            except:
+                pass  # If we can't send JSON, at least stderr was logged
 
 
 if __name__ == "__main__":

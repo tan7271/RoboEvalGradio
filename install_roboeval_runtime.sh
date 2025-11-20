@@ -168,5 +168,73 @@ if conda env list | grep -q "openpi_env"; then
     echo "✓ RoboEval installed in openpi_env"
 fi
 
+# Install git-based packages in openvla_env if it exists
+if conda env list | grep -q "openvla_env"; then
+    echo "Installing git-based packages in openvla_env..."
+    conda run -n openvla_env pip install --no-cache-dir \
+        git+https://github.com/openvla/openvla.git || {
+        echo "⚠️  Warning: Failed to install OpenVLA in openvla_env"
+    }
+    
+    # Install RoboEval directly into openvla_env (handles permissions and dependencies automatically)
+    echo "Installing RoboEval into openvla_env..."
+    # Set environment variables for building
+    export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+    export USE_BAZEL_VERSION=7.5.0
+    
+    # Ensure Bazel is in PATH
+    if [ -f "/usr/local/bin/bazel" ]; then
+        export PATH="/usr/local/bin:${PATH}"
+    fi
+    
+    # Source cargo env if it exists
+    if [ -f "/root/.cargo/env" ]; then
+        source /root/.cargo/env
+    fi
+    
+    # Install RoboEval into openvla_env
+    # Pass CLONE_DIR as an environment variable to the subshell
+    CLONE_DIR_ESC=$(echo "$CLONE_DIR" | sed 's/"/\\"/g')
+    conda run -n openvla_env bash -c "
+        export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1;
+        export USE_BAZEL_VERSION=7.5.0;
+        export PATH=\"/usr/local/bin:\$PATH\";
+        if [ -f \"/root/.cargo/env\" ]; then source /root/.cargo/env; fi;
+        pip install \"${CLONE_DIR_ESC}\" --no-cache-dir || {
+            echo '⚠️  RoboEval installation had some errors, but continuing...';
+            pip install safetensors --only-binary :all: || pip install 'safetensors>=0.4.1' --no-build-isolation || true;
+        }
+    " || {
+        echo "⚠️  Warning: RoboEval installation into openvla_env had errors"
+    }
+    
+    # Also copy thirdparty to user's local site-packages (Python 3.10 for OpenVLA)
+    echo "Copying thirdparty to user's local site-packages for OpenVLA..."
+    USER_SITE_PACKAGES="/home/user/.local/lib/python3.10/site-packages"
+    mkdir -p "$USER_SITE_PACKAGES" 2>/dev/null || true
+    
+    # Find thirdparty source
+    THIRDPARTY_SOURCE=""
+    if [ -d "${SITE_PACKAGES}/thirdparty" ]; then
+        THIRDPARTY_SOURCE="${SITE_PACKAGES}/thirdparty"
+    elif [ -d "$CLONE_DIR/thirdparty" ]; then
+        THIRDPARTY_SOURCE="$CLONE_DIR/thirdparty"
+    fi
+    
+    if [ -n "$THIRDPARTY_SOURCE" ] && [ -d "$THIRDPARTY_SOURCE" ]; then
+        # Copy to user's local site-packages (user has write access here)
+        cp -r "$THIRDPARTY_SOURCE" "$USER_SITE_PACKAGES/" 2>/dev/null || {
+            echo "⚠️  Warning: Failed to copy thirdparty to user site-packages for OpenVLA"
+        }
+        
+        # Verify
+        if [ -d "$USER_SITE_PACKAGES/thirdparty" ]; then
+            echo "✓ thirdparty copied to user site-packages: $USER_SITE_PACKAGES"
+        fi
+    fi
+    
+    echo "✓ RoboEval installed in openvla_env"
+fi
+
 echo "✓ RoboEval installation complete"
 

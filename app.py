@@ -737,14 +737,15 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
 
 def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
     """Dispatch OpenVLA inference to subprocess"""
+    model_key = "openvla"  # Define model_key for this function
     try:
         request.progress(0, desc="Starting OpenVLA worker...")
-        worker = get_inference_worker("openvla")
+        worker = get_inference_worker(model_key)
         
         # Verify worker is still alive before sending request
         if worker.poll() is not None:
             return_code = worker.returncode
-            stderr_from_buffer = "".join(_WORKER_STDERR.get("openvla", []))
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
             error_msg = f"❌ Worker process died immediately after startup (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
@@ -756,8 +757,17 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         # Send request
         request_dict = request.to_dict()
         request_json = json.dumps(request_dict)
-        worker.stdin.write(request_json + "\n")
-        worker.stdin.flush()
+        print(f"DEBUG: Sending request to {model_key} worker: {request_json[:150]}...", flush=True)
+        try:
+            worker.stdin.write(request_json + "\n")
+            worker.stdin.flush()
+        except BrokenPipeError:
+            # Worker died - restart it
+            print(f"⚠️  Worker {model_key} stdin broken, restarting...", flush=True)
+            _INFERENCE_WORKERS[model_key] = None
+            worker = get_inference_worker(model_key)
+            worker.stdin.write(request_json + "\n")
+            worker.stdin.flush()
         
         request.progress(0.2, desc="Waiting for inference result...")
         
@@ -778,10 +788,11 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         import select
         import sys
         
-        # Wait for output with timeout (5 seconds)
+        # Wait for output with timeout (300 seconds)
+        timeout_seconds = 300.0
         if hasattr(select, 'select'):
             # Unix-like system
-            ready, _, _ = select.select([worker.stdout], [], [], 5.0)
+            ready, _, _ = select.select([worker.stdout], [], [], timeout_seconds)
             if not ready:
                 # Timeout - check if process is still alive
                 if worker.poll() is not None:
@@ -792,10 +803,12 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
                         error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
                     return None, error_msg
                 else:
-                    return None, "❌ Worker process timeout - no response received within 5 seconds"
+                    return None, f"❌ Worker process timeout - no response received within {timeout_seconds} seconds"
         
         # Read result
+        print(f"DEBUG: Waiting for response from {model_key} worker...", flush=True)
         result_line = worker.stdout.readline()
+        print(f"DEBUG: Received from {model_key} worker stdout: {repr(result_line[:200])}", flush=True)
         if not result_line:
             # Worker process ended - check why
             return_code = worker.poll()
@@ -810,7 +823,41 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
             else:
                 return None, "❌ Worker process ended unexpectedly (no output received)"
         
-        result = json.loads(result_line)
+        # Validate JSON before parsing
+        result_line = result_line.strip()
+        if not result_line:
+            # Empty line - worker might have crashed or sent error to stderr
+            return_code = worker.poll()
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+            error_msg = "❌ Worker returned empty response"
+            if return_code is not None:
+                error_msg += f" (exit code: {return_code})"
+            if stderr_from_buffer:
+                error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+            return None, error_msg
+        
+        try:
+            result = json.loads(result_line)
+        except json.JSONDecodeError as e:
+            # Invalid JSON - worker might have crashed or sent an error message
+            return_code = worker.poll()
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+            
+            # If worker crashed, mark it as dead so it will be restarted next time
+            if return_code is not None:
+                print(f"⚠️  Worker {model_key} crashed (exit code: {return_code}), will restart on next request", flush=True)
+                _INFERENCE_WORKERS[model_key] = None
+            
+            error_msg = f"❌ Worker communication error: {str(e)}"
+            if result_line:
+                error_msg += f"\n\nReceived output (not valid JSON):\n{result_line[:500]}"
+            else:
+                error_msg += "\n\n(Received empty line)"
+            if return_code is not None:
+                error_msg += f"\n\nWorker exit code: {return_code}"
+            if stderr_from_buffer:
+                error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+            return None, error_msg
         
         request.progress(1.0, desc="Complete!")
         
@@ -822,7 +869,8 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         
     except Exception as e:
         import traceback
-        return None, f"❌ Worker communication error: {str(e)}\n\n{traceback.format_exc()}"
+        error_msg = f"❌ Worker communication error: {str(e)}\n\n```\n{traceback.format_exc()}\n```"
+        return None, error_msg
 
 
 # Registry of supported models (populated dynamically based on available environments)

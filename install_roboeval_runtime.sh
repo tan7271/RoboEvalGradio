@@ -110,8 +110,52 @@ if conda env list | grep -q "openpi_env"; then
     
     # Copy RoboEval to openpi_env
     OPENPI_SITE=$(conda run -n openpi_env python -c "import site; print(site.getsitepackages()[0])")
+    echo "Copying RoboEval to openpi_env site-packages: ${OPENPI_SITE}"
+    
+    # Also check user's local site-packages (Python might use this)
+    USER_SITE=$(conda run -n openpi_env python -c "import site; sites = site.getsitepackages(); user_site = [s for s in sites if 'local' in s]; print(user_site[0] if user_site else '')" 2>/dev/null || echo "")
+    
+    # Copy roboeval packages
     cp -r ${SITE_PACKAGES}/roboeval* ${OPENPI_SITE}/ 2>/dev/null || true
-    cp -r ${SITE_PACKAGES}/thirdparty ${OPENPI_SITE}/ 2>/dev/null || true
+    if [ -n "$USER_SITE" ] && [ "$USER_SITE" != "$OPENPI_SITE" ]; then
+        echo "Also copying to user site-packages: ${USER_SITE}"
+        mkdir -p ${USER_SITE} 2>/dev/null || true
+        cp -r ${SITE_PACKAGES}/roboeval* ${USER_SITE}/ 2>/dev/null || true
+    fi
+    
+    # Copy thirdparty directory (critical for mujoco_menagerie)
+    THIRDPARTY_SOURCE=""
+    if [ -d "${SITE_PACKAGES}/thirdparty" ]; then
+        THIRDPARTY_SOURCE="${SITE_PACKAGES}/thirdparty"
+    elif [ -d "$CLONE_DIR/thirdparty" ]; then
+        THIRDPARTY_SOURCE="$CLONE_DIR/thirdparty"
+    fi
+    
+    if [ -n "$THIRDPARTY_SOURCE" ]; then
+        echo "Copying thirdparty directory from ${THIRDPARTY_SOURCE}..."
+        # Copy to conda environment site-packages
+        cp -r ${THIRDPARTY_SOURCE} ${OPENPI_SITE}/ || {
+            echo "⚠️  Warning: Failed to copy thirdparty directory to ${OPENPI_SITE}"
+        }
+        # Also copy to user site-packages if different
+        if [ -n "$USER_SITE" ] && [ "$USER_SITE" != "$OPENPI_SITE" ]; then
+            echo "Also copying thirdparty to user site-packages: ${USER_SITE}"
+            cp -r ${THIRDPARTY_SOURCE} ${USER_SITE}/ || {
+                echo "⚠️  Warning: Failed to copy thirdparty directory to ${USER_SITE}"
+            }
+        fi
+        
+        # Verify it was copied
+        if [ -d "${OPENPI_SITE}/thirdparty" ]; then
+            echo "✓ thirdparty directory copied to ${OPENPI_SITE}"
+        fi
+        if [ -n "$USER_SITE" ] && [ -d "${USER_SITE}/thirdparty" ]; then
+            echo "✓ thirdparty directory copied to ${USER_SITE}"
+        fi
+    else
+        echo "⚠️  Warning: thirdparty directory not found in ${SITE_PACKAGES}/thirdparty or ${CLONE_DIR}/thirdparty"
+    fi
+    
     echo "✓ RoboEval copied to openpi_env"
 fi
 

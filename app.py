@@ -677,7 +677,41 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
             else:
                 return None, "❌ Worker process ended unexpectedly (no output received)"
         
-        result = json.loads(result_line)
+        # Validate JSON before parsing
+        result_line = result_line.strip()
+        if not result_line:
+            # Empty line - worker might have crashed or sent error to stderr
+            return_code = worker.poll()
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+            error_msg = "❌ Worker returned empty response"
+            if return_code is not None:
+                error_msg += f" (exit code: {return_code})"
+            if stderr_from_buffer:
+                error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+            return None, error_msg
+        
+        try:
+            result = json.loads(result_line)
+        except json.JSONDecodeError as e:
+            # Invalid JSON - worker might have crashed or sent an error message
+            return_code = worker.poll()
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+            
+            # If worker crashed, mark it as dead so it will be restarted next time
+            if return_code is not None:
+                print(f"⚠️  Worker {model_key} crashed (exit code: {return_code}), will restart on next request", flush=True)
+                _INFERENCE_WORKERS[model_key] = None
+            
+            error_msg = f"❌ Worker communication error: {str(e)}"
+            if result_line:
+                error_msg += f"\n\nReceived output (not valid JSON):\n{result_line[:500]}"
+            else:
+                error_msg += "\n\n(Received empty line)"
+            if return_code is not None:
+                error_msg += f"\n\nWorker exit code: {return_code}"
+            if stderr_from_buffer:
+                error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+            return None, error_msg
         
         request.progress(1.0, desc="Complete!")
         

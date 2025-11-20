@@ -517,24 +517,53 @@ def main():
             if not line.strip():
                 continue
             
-            request = json.loads(line.strip())
-            result = run_inference(request)
-            print(json.dumps(result), flush=True)
+            try:
+                request = json.loads(line.strip())
+            except json.JSONDecodeError as e:
+                # Invalid JSON request - send error response
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": f"❌ Invalid JSON request: {str(e)}",
+                    "error": f"JSON decode error: {str(e)}"
+                }
+                print(json.dumps(error_result), flush=True)
+                continue
+            
+            try:
+                result = run_inference(request)
+                print(json.dumps(result), flush=True)
+            except Exception as e:
+                # Error during inference - send error response as JSON
+                import traceback
+                error_msg = f"Error in worker inference: {str(e)}\n{traceback.format_exc()}"
+                print(error_msg, file=sys.stderr, flush=True)
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": f"❌ Worker error: {str(e)}",
+                    "error": str(e)
+                }
+                print(json.dumps(error_result), flush=True)
             
         except KeyboardInterrupt:
             print("===== OpenPI Worker: interrupted =====", file=sys.stderr, flush=True)
             break
         except Exception as e:
+            # Fatal error in main loop - try to send error response before exiting
             import traceback
-            error_msg = f"Error in worker main loop: {str(e)}\n{traceback.format_exc()}"
+            error_msg = f"Fatal error in worker main loop: {str(e)}\n{traceback.format_exc()}"
             print(error_msg, file=sys.stderr, flush=True)
-            error_result = {
-                "success": False,
-                "video_path": None,
-                "status_message": "❌ Worker error",
-                "error": str(e)
-            }
-            print(json.dumps(error_result), flush=True)
+            try:
+                error_result = {
+                    "success": False,
+                    "video_path": None,
+                    "status_message": "❌ Worker fatal error",
+                    "error": str(e)
+                }
+                print(json.dumps(error_result), flush=True)
+            except:
+                pass  # If we can't send JSON, at least stderr was logged
 
 
 if __name__ == "__main__":

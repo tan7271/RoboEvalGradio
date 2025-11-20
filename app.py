@@ -602,14 +602,15 @@ class ModelDefinition:
 # ---------------------- Main Inference Functions ----------------------
 def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
     """Dispatch OpenPI inference to subprocess"""
+    model_key = "openpi"  # Define model_key for this function
     try:
         request.progress(0, desc="Starting OpenPI worker...")
-        worker = get_inference_worker("openpi")
+        worker = get_inference_worker(model_key)
         
         # Verify worker is still alive before sending request
         if worker.poll() is not None:
             return_code = worker.returncode
-            stderr_from_buffer = "".join(_WORKER_STDERR.get("openpi", []))
+            stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
             error_msg = f"❌ Worker process died immediately after startup (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
@@ -643,10 +644,11 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
         import select
         import sys
         
-        # Wait for output with timeout (5 seconds)
+        # Wait for output with timeout (inference can take a while, use 300 seconds = 5 minutes)
+        timeout_seconds = 300.0
         if hasattr(select, 'select'):
             # Unix-like system
-            ready, _, _ = select.select([worker.stdout], [], [], 5.0)
+            ready, _, _ = select.select([worker.stdout], [], [], timeout_seconds)
             if not ready:
                 # Timeout - check if process is still alive
                 if worker.poll() is not None:
@@ -657,7 +659,7 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
                         error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
                     return None, error_msg
                 else:
-                    return None, "❌ Worker process timeout - no response received within 5 seconds"
+                    return None, f"❌ Worker process timeout - no response received within {timeout_seconds} seconds"
         
         # Read result
         result_line = worker.stdout.readline()

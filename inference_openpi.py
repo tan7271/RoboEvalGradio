@@ -535,8 +535,12 @@ def main():
                 continue
             
             try:
+                print(f"DEBUG: Starting inference for task: {request.get('task_name', 'unknown')}", file=sys.stderr, flush=True)
                 result = run_inference(request)
-                print(json.dumps(result), flush=True)
+                print(f"DEBUG: Inference completed, sending result", file=sys.stderr, flush=True)
+                result_json = json.dumps(result)
+                print(result_json, flush=True)
+                print(f"DEBUG: Result sent successfully", file=sys.stderr, flush=True)
             except Exception as e:
                 # Error during inference - send error response as JSON
                 import traceback
@@ -548,7 +552,9 @@ def main():
                     "status_message": f"❌ Worker error: {str(e)}",
                     "error": str(e)
                 }
-                print(json.dumps(error_result), flush=True)
+                error_json = json.dumps(error_result)
+                print(error_json, flush=True)
+                print(f"DEBUG: Error result sent successfully", file=sys.stderr, flush=True)
             
         except KeyboardInterrupt:
             print("===== OpenPI Worker: interrupted =====", file=sys.stderr, flush=True)

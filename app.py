@@ -622,8 +622,17 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
         # Send request
         request_dict = request.to_dict()
         request_json = json.dumps(request_dict)
-        worker.stdin.write(request_json + "\n")
-        worker.stdin.flush()
+        print(f"DEBUG: Sending request to {model_key} worker: {request_json[:150]}...", flush=True)
+        try:
+            worker.stdin.write(request_json + "\n")
+            worker.stdin.flush()
+        except BrokenPipeError:
+            # Worker died - restart it
+            print(f"⚠️  Worker {model_key} stdin broken, restarting...", flush=True)
+            _INFERENCE_WORKERS[model_key] = None
+            worker = get_inference_worker(model_key)
+            worker.stdin.write(request_json + "\n")
+            worker.stdin.flush()
         
         request.progress(0.2, desc="Waiting for inference result...")
         

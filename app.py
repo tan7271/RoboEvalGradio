@@ -642,7 +642,7 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
             error_msg = f"❌ Worker process died immediately after startup (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-        else:
+            else:
                 error_msg += "\n\n(No stderr output captured. Check container logs for startup errors.)"
             return None, error_msg
         
@@ -815,7 +815,7 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
             error_msg = f"❌ Worker process ended before processing request (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-        else:
+            else:
                 error_msg += "\n\n(No stderr output captured. The worker may have crashed during startup.)"
             return None, error_msg
         
@@ -836,7 +836,7 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
                     error_msg = f"❌ Worker process ended while waiting for response (exit code: {return_code})"
                     if stderr_from_buffer:
                         error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-        return None, error_msg
+                    return None, error_msg
                 else:
                     return None, f"❌ Worker process timeout - no response received within {timeout_seconds} seconds"
         

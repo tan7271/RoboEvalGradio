@@ -75,6 +75,7 @@ dependencies:
     - moviepy==1.0.3
     - imageio-ffmpeg==0.6.0
     - opencv-python-headless==4.11.0.86
+    - av>=12.0.0
     # MuJoCo and robotics
     - mujoco==3.3.3
     - dm-control==1.0.31

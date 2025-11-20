@@ -43,9 +43,9 @@ except ImportError as e:
 
 # Import OpenPI dependencies (only available in openpi_env)
 try:
-    # Import get_config function and AssetsConfig class directly
-    from openpi.training.config import get_config, AssetsConfig
-    from openpi.policies.policy_config import PIPolicy
+    # Import modules (same pattern as old app.py that worked)
+    from openpi.training import config as _config
+    from openpi.policies import policy_config as _policy_config
     print("✓ OpenPI config and policy modules imported successfully", file=sys.stderr, flush=True)
 except ImportError as e:
     print(f"✗ OpenPI config/policy import failed: {e}", file=sys.stderr, flush=True)
@@ -241,13 +241,13 @@ def load_pi0_policy(task_name: str, ckpt_path: str):
     if cache_key in _POLICY_CACHE:
         return _POLICY_CACHE[cache_key]
     
-    cfg = get_config("pi0_base_bimanual_droid_finetune")
-    bimanual_assets = AssetsConfig(
+    cfg = _config.get_config("pi0_base_bimanual_droid_finetune")
+    bimanual_assets = _config.AssetsConfig(
         assets_dir=f"{checkpoint_path}/assets/",
         asset_id=f"tan7271/{task_name}",
     )
     cfg = dataclasses.replace(cfg, data=dataclasses.replace(cfg.data, assets=bimanual_assets))
-    policy = PIPolicy.create_trained_policy(cfg, checkpoint_path)
+    policy = _policy_config.create_trained_policy(cfg, checkpoint_path)
     
     _POLICY_CACHE[cache_key] = policy
     return policy

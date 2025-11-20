@@ -741,7 +741,7 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         else:
             error_msg = f"❌ OpenVLA Error: {result.get('error', 'Unknown error')}\n\n{result.get('status_message', '')}"
             return None, error_msg
-            
+        
     except Exception as e:
         import traceback
         return None, f"❌ Worker communication error: {str(e)}\n\n{traceback.format_exc()}"
@@ -771,7 +771,7 @@ if HAS_OPENVLA:
         ),
         run_inference=run_openvla_inference,
     )
-else:
+        else:
     print("ℹ OpenVLA environment not found - OpenVLA model will not be available")
 
 
@@ -899,7 +899,7 @@ def create_gradio_interface():
             outputs=model_info,
             queue=False,
         )
-
+        
         # Event handler
         run_button.click(
             fn=run_model_inference,

@@ -290,16 +290,28 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
             print(f"⚠️  Warning: Could not verify {env_name} exists: {e}. Will attempt anyway.")
         
         if _INFERENCE_WORKERS[model_key] is None or _INFERENCE_WORKERS[model_key].poll() is not None:
-            print(f"Starting {model_key} worker in {env_name} using conda...")
-            
-            proc = subprocess.Popen(
-                [conda_path, "run", "-n", env_name, "python", script_name],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,  # Line buffered
-            )
+            # Try to find Python executable directly first (better stdin handling)
+            env_python = find_conda_env_python(env_name)
+            if env_python:
+                print(f"Starting {model_key} worker using environment Python directly...")
+                proc = subprocess.Popen(
+                    [env_python, script_name],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
+            else:
+                print(f"Starting {model_key} worker in {env_name} using conda...")
+                proc = subprocess.Popen(
+                    [conda_path, "run", "-n", env_name, "python", script_name],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
             
             # Start background thread to read stderr
             import threading
@@ -317,19 +329,40 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
             
             while waited < max_wait:
                 if proc.poll() is not None:
-                    # Process died - get stderr from buffer
+                    # Process exited - check if it's a failure or just finished startup
                     stderr_output = "".join(_WORKER_STDERR[model_key])
-                    error_msg = f"❌ Worker process failed to start (exit code: {proc.returncode})"
-                    if stderr_output:
-                        error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                    # If we see the ready message, the worker started successfully
+                    if "worker ready" in stderr_output.lower():
+                        # Worker started but then exited - this is unexpected
+                        error_msg = f"❌ Worker process exited unexpectedly after startup (exit code: {proc.returncode})"
+                        if stderr_output:
+                            error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                        print(error_msg, flush=True)
+                        raise RuntimeError(error_msg)
                     else:
-                        error_msg += "\n\n(No stderr output captured. The worker may have crashed during import.)"
-                    print(error_msg, flush=True)
-                    raise RuntimeError(error_msg)
+                        # Worker failed during startup
+                        error_msg = f"❌ Worker process failed to start (exit code: {proc.returncode})"
+                        if stderr_output:
+                            error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                        else:
+                            error_msg += "\n\n(No stderr output captured. The worker may have crashed during import.)"
+                        print(error_msg, flush=True)
+                        raise RuntimeError(error_msg)
                 
                 # Check if worker is ready (look for ready message in stderr)
                 stderr_so_far = "".join(_WORKER_STDERR[model_key])
                 if ready_message.lower() in stderr_so_far.lower() or "worker ready" in stderr_so_far.lower():
+                    # Worker is ready - give it a moment to stabilize
+                    time.sleep(0.2)
+                    # Check if it's still alive after ready message
+                    if proc.poll() is not None:
+                        # Worker exited after ready - might be stdin issue
+                        stderr_output = "".join(_WORKER_STDERR[model_key])
+                        error_msg = f"❌ Worker exited immediately after ready message (exit code: {proc.returncode})"
+                        if stderr_output:
+                            error_msg += f"\n\nWorker stderr:\n{stderr_output}"
+                        print(error_msg, flush=True)
+                        raise RuntimeError(error_msg)
                     break
                 
                 time.sleep(wait_interval)

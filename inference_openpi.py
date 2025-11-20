@@ -458,13 +458,23 @@ def main():
     print("===== OpenPI Worker Ready =====", file=sys.stderr, flush=True)
     print("Waiting for inference requests...", file=sys.stderr, flush=True)
     
+    # Ensure stdin is in text mode and properly buffered
+    if sys.stdin.isatty():
+        # If stdin is a TTY, this shouldn't happen in subprocess context
+        print("⚠️  Warning: stdin is a TTY, not a pipe", file=sys.stderr, flush=True)
+    
     while True:
         try:
+            # Read a line from stdin (this will block until data is available or EOF)
             line = sys.stdin.readline()
             if not line:
-                # stdin closed - exit gracefully
-                print("===== OpenPI Worker: stdin closed, exiting =====", file=sys.stderr, flush=True)
+                # stdin closed (EOF) - exit gracefully
+                print("===== OpenPI Worker: stdin closed (EOF), exiting =====", file=sys.stderr, flush=True)
                 break
+            
+            # Skip empty lines
+            if not line.strip():
+                continue
             
             request = json.loads(line.strip())
             result = run_inference(request)

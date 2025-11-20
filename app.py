@@ -771,7 +771,7 @@ if HAS_OPENVLA:
         ),
         run_inference=run_openvla_inference,
     )
-        else:
+else:
     print("ℹ OpenVLA environment not found - OpenVLA model will not be available")
 
 

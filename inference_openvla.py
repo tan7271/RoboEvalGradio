@@ -138,7 +138,13 @@ captured_import_output = stdout_capture.getvalue()
 if captured_import_output:
     print(f"⚠️  WARNING: Libraries printed to stdout during import: {repr(captured_import_output[:500])}", file=sys.stderr, flush=True)
 
+# Ensure stdout is properly restored (should be automatic, but let's be explicit)
+# Clear the capture buffer to free memory
+stdout_capture.close()
+del stdout_capture
+
 print("===== All dependencies verified successfully =====", file=sys.stderr, flush=True)
+print("===== OpenVLA Worker: Imports complete, entering main loop =====", file=sys.stderr, flush=True)
 
 # Configuration constants
 DEFAULT_DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -567,5 +573,22 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        error_msg = f"Fatal error in OpenVLA worker: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg, file=sys.stderr, flush=True)
+        # Try to send error response if possible
+        try:
+            error_result = {
+                "success": False,
+                "video_path": None,
+                "status_message": f"❌ Worker fatal error: {str(e)}",
+                "error": str(e)
+            }
+            print(json.dumps(error_result), flush=True)
+        except:
+            pass  # If we can't send JSON, at least stderr was logged
+        sys.exit(1)
 

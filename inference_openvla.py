@@ -1,6 +1,6 @@
 """
 OpenVLA Inference Worker - Runs in openvla_env
-Receives inference requests via stdin, returns results via stdout
+Receives inference requests via stdin, returns results to stdout
 """
 import sys
 import json
@@ -10,6 +10,9 @@ import copy
 import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+
+# Print early startup message so parent knows we're starting
+print("===== OpenVLA Worker: Starting up... =====", file=sys.stderr, flush=True)
 
 # Set headless mode
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -27,124 +30,135 @@ print("===== Checking OpenVLA Environment Dependencies =====", file=sys.stderr, 
 stdout_capture = io.StringIO()
 
 try:
-    with redirect_stdout(stdout_capture):
-        import torch
-    print(f"✓ torch imported successfully (version: {torch.__version__})", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ torch import failed: {e}", file=sys.stderr, flush=True)
+    try:
+        with redirect_stdout(stdout_capture):
+            import torch
+        print(f"✓ torch imported successfully (version: {torch.__version__})", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ torch import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    except Exception as e:
+        import traceback
+        print(f"✗ torch import error: {e}", file=sys.stderr, flush=True)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    try:
+        with redirect_stdout(stdout_capture):
+            from PIL import Image
+        print("✓ pillow imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ pillow import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    try:
+        with redirect_stdout(stdout_capture):
+            import transformers
+        print(f"✓ transformers imported successfully (version: {transformers.__version__})", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ transformers import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    try:
+        with redirect_stdout(stdout_capture):
+            from transformers import (
+                AutoConfig,
+                AutoImageProcessor,
+                AutoModelForVision2Seq,
+                AutoProcessor,
+            )
+        print("✓ transformers components imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ transformers components import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    try:
+        with redirect_stdout(stdout_capture):
+            import roboeval
+        print("✓ roboeval imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ roboeval import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # Import OpenVLA dependencies (only available in openvla_env)
+    try:
+        with redirect_stdout(stdout_capture):
+            from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
+            from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
+            from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
+        print("✓ OpenVLA (prismatic) modules imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ OpenVLA (prismatic) import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    try:
+        with redirect_stdout(stdout_capture):
+            from roboeval.action_modes import JointPositionActionMode
+            from roboeval.utils.observation_config import CameraConfig, ObservationConfig
+            from roboeval.robots.configs.panda import BimanualPanda
+            from roboeval.roboeval_env import CONTROL_FREQUENCY_MAX
+        print("✓ RoboEval core modules imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ RoboEval core modules import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # Import all environment classes
+    try:
+        with redirect_stdout(stdout_capture):
+            from roboeval.envs.manipulation import (
+                CubeHandover, CubeHandoverOrientation, CubeHandoverPosition,
+                CubeHandoverPositionAndOrientation, VerticalCubeHandover,
+                StackTwoBlocks, StackTwoBlocksOrientation, StackTwoBlocksPosition,
+                StackTwoBlocksPositionAndOrientation
+            )
+            from roboeval.envs.lift_pot import (
+                LiftPot, LiftPotOrientation, LiftPotPosition, LiftPotPositionAndOrientation,
+            )
+            from roboeval.envs.lift_tray import (
+                LiftTray, DragOverAndLiftTray, LiftTrayOrientation, LiftTrayPosition, LiftTrayPositionAndOrientation,
+            )
+            from roboeval.envs.pack_objects import (
+                PackBox, PackBoxOrientation, PackBoxPosition, PackBoxPositionAndOrientation,
+            )
+            from roboeval.envs.stack_books import (
+                PickSingleBookFromTable, PickSingleBookFromTableOrientation,
+                PickSingleBookFromTablePosition, PickSingleBookFromTablePositionAndOrientation,
+                StackSingleBookShelf, StackSingleBookShelfPosition, StackSingleBookShelfPositionAndOrientation,
+            )
+            from roboeval.envs.rotate_utility_objects import (
+                RotateValve, RotateValveObstacle, RotateValvePosition, RotateValvePositionAndOrientation,
+            )
+        print("✓ RoboEval environment classes imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ RoboEval environment classes import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # Video
+    try:
+        with redirect_stdout(stdout_capture):
+            from moviepy.editor import VideoClip
+        print("✓ moviepy imported successfully", file=sys.stderr, flush=True)
+    except ImportError as e:
+        print(f"✗ moviepy import failed: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # Check if anything was printed to stdout during imports
+    captured_import_output = stdout_capture.getvalue()
+    if captured_import_output:
+        print(f"⚠️  WARNING: Libraries printed to stdout during import: {repr(captured_import_output[:500])}", file=sys.stderr, flush=True)
+
+    # Ensure stdout is properly restored (should be automatic, but let's be explicit)
+    # Clear the capture buffer to free memory
+    stdout_capture.close()
+    del stdout_capture
+
+    print("===== All dependencies verified successfully =====", file=sys.stderr, flush=True)
+    print("===== OpenVLA Worker: Imports complete =====", file=sys.stderr, flush=True)
+except Exception as e:
+    import traceback
+    print(f"✗ Fatal error during dependency imports: {e}", file=sys.stderr, flush=True)
+    print(f"Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
     sys.exit(1)
-
-try:
-    with redirect_stdout(stdout_capture):
-        from PIL import Image
-    print("✓ pillow imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ pillow import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-try:
-    with redirect_stdout(stdout_capture):
-        import transformers
-    print(f"✓ transformers imported successfully (version: {transformers.__version__})", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ transformers import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-try:
-    with redirect_stdout(stdout_capture):
-        from transformers import (
-            AutoConfig,
-            AutoImageProcessor,
-            AutoModelForVision2Seq,
-            AutoProcessor,
-        )
-    print("✓ transformers components imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ transformers components import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-try:
-    with redirect_stdout(stdout_capture):
-        import roboeval
-    print("✓ roboeval imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ roboeval import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-# Import OpenVLA dependencies (only available in openvla_env)
-try:
-    with redirect_stdout(stdout_capture):
-        from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
-        from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
-        from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
-    print("✓ OpenVLA (prismatic) modules imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ OpenVLA (prismatic) import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-try:
-    with redirect_stdout(stdout_capture):
-        from roboeval.action_modes import JointPositionActionMode
-        from roboeval.utils.observation_config import CameraConfig, ObservationConfig
-        from roboeval.robots.configs.panda import BimanualPanda
-        from roboeval.roboeval_env import CONTROL_FREQUENCY_MAX
-    print("✓ RoboEval core modules imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ RoboEval core modules import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-# Import all environment classes
-try:
-    with redirect_stdout(stdout_capture):
-        from roboeval.envs.manipulation import (
-            CubeHandover, CubeHandoverOrientation, CubeHandoverPosition,
-            CubeHandoverPositionAndOrientation, VerticalCubeHandover,
-            StackTwoBlocks, StackTwoBlocksOrientation, StackTwoBlocksPosition,
-            StackTwoBlocksPositionAndOrientation
-        )
-        from roboeval.envs.lift_pot import (
-            LiftPot, LiftPotOrientation, LiftPotPosition, LiftPotPositionAndOrientation,
-        )
-        from roboeval.envs.lift_tray import (
-            LiftTray, DragOverAndLiftTray, LiftTrayOrientation, LiftTrayPosition, LiftTrayPositionAndOrientation,
-        )
-        from roboeval.envs.pack_objects import (
-            PackBox, PackBoxOrientation, PackBoxPosition, PackBoxPositionAndOrientation,
-        )
-        from roboeval.envs.stack_books import (
-            PickSingleBookFromTable, PickSingleBookFromTableOrientation,
-            PickSingleBookFromTablePosition, PickSingleBookFromTablePositionAndOrientation,
-            StackSingleBookShelf, StackSingleBookShelfPosition, StackSingleBookShelfPositionAndOrientation,
-        )
-        from roboeval.envs.rotate_utility_objects import (
-            RotateValve, RotateValveObstacle, RotateValvePosition, RotateValvePositionAndOrientation,
-        )
-    print("✓ RoboEval environment classes imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ RoboEval environment classes import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-# Video
-try:
-    with redirect_stdout(stdout_capture):
-        from moviepy.editor import VideoClip
-    print("✓ moviepy imported successfully", file=sys.stderr, flush=True)
-except ImportError as e:
-    print(f"✗ moviepy import failed: {e}", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-# Check if anything was printed to stdout during imports
-captured_import_output = stdout_capture.getvalue()
-if captured_import_output:
-    print(f"⚠️  WARNING: Libraries printed to stdout during import: {repr(captured_import_output[:500])}", file=sys.stderr, flush=True)
-
-# Ensure stdout is properly restored (should be automatic, but let's be explicit)
-# Clear the capture buffer to free memory
-stdout_capture.close()
-del stdout_capture
-
-print("===== All dependencies verified successfully =====", file=sys.stderr, flush=True)
-print("===== OpenVLA Worker: Imports complete, entering main loop =====", file=sys.stderr, flush=True)
 
 # Configuration constants
 DEFAULT_DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"

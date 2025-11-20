@@ -200,12 +200,28 @@ def _stderr_reader(proc: subprocess.Popen, model_key: str):
     """Background thread to read stderr from worker process"""
     global _WORKER_STDERR
     try:
-        for line in proc.stderr:
+        # Read stderr line by line, with error handling
+        import sys as sys_module
+        while True:
+            line = proc.stderr.readline()
+            if not line:
+                # EOF - process likely exited
+                break
             _WORKER_STDERR[model_key].append(line)
             # Also print to console for debugging
             print(f"[{model_key} worker stderr] {line}", end="", flush=True)
-    except:
-        pass
+    except Exception as e:
+        # Log any errors in the stderr reader itself
+        print(f"[{model_key} stderr reader error] {e}", flush=True)
+    finally:
+        # Try to read any remaining buffered output
+        try:
+            remaining = proc.stderr.read()
+            if remaining:
+                _WORKER_STDERR[model_key].append(remaining)
+                print(f"[{model_key} worker stderr (remaining)] {remaining}", flush=True)
+        except:
+            pass
 
 
 def find_conda():
@@ -315,13 +331,16 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
             
             # Start background thread to read stderr
             import threading
+            import time
             _WORKER_STDERR[model_key] = []  # Reset stderr buffer
             stderr_thread = threading.Thread(target=_stderr_reader, args=(proc, model_key), daemon=True)
             stderr_thread.start()
             
+            # Give stderr reader a moment to start and capture any immediate output
+            time.sleep(0.1)
+            
             # Give the worker time to start and print startup messages
             # Workers print "===== Worker Ready =====" to stderr when ready
-            import time
             max_wait = 10.0  # Wait up to 10 seconds for startup
             wait_interval = 0.5
             waited = 0.0
@@ -329,10 +348,12 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
             
             while waited < max_wait:
                 if proc.poll() is not None:
+                    # Process exited - give stderr reader a moment to finish reading
+                    time.sleep(0.2)
                     # Process exited - check if it's a failure or just finished startup
                     stderr_output = "".join(_WORKER_STDERR[model_key])
                     # If we see the ready message, the worker started successfully
-                    if "worker ready" in stderr_output.lower():
+                    if "worker ready" in stderr_output.lower() or "starting up" in stderr_output.lower():
                         # Worker started but then exited - this is unexpected
                         error_msg = f"❌ Worker process exited unexpectedly after startup (exit code: {proc.returncode})"
                         if stderr_output:
@@ -346,6 +367,13 @@ def get_inference_worker(model_key: str) -> subprocess.Popen:
                             error_msg += f"\n\nWorker stderr:\n{stderr_output}"
                         else:
                             error_msg += "\n\n(No stderr output captured. The worker may have crashed during import.)"
+                            # Try to read stderr one more time directly
+                            try:
+                                direct_stderr = proc.stderr.read()
+                                if direct_stderr:
+                                    error_msg += f"\n\nDirect stderr read: {direct_stderr}"
+                            except:
+                                pass
                         print(error_msg, flush=True)
                         raise RuntimeError(error_msg)
                 
@@ -614,7 +642,7 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
             error_msg = f"❌ Worker process died immediately after startup (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-            else:
+        else:
                 error_msg += "\n\n(No stderr output captured. Check container logs for startup errors.)"
             return None, error_msg
         
@@ -684,7 +712,14 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
                     error_msg += "\n\n(No stderr output captured. Check container logs for details.)"
                 return None, error_msg
             else:
-                return None, "❌ Worker process ended unexpectedly (no output received)"
+                # Worker is still running but no output - might be hanging
+                stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+                error_msg = "❌ Worker process ended unexpectedly (no output received)"
+                if stderr_from_buffer:
+                    error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+                else:
+                    error_msg += "\n\n(No stderr output captured. Worker may have crashed silently or is hanging.)"
+                return None, error_msg
         
         # Validate JSON before parsing
         result_line = result_line.strip()
@@ -729,7 +764,7 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
         else:
             error_msg = f"❌ OpenPI Error: {result.get('error', 'Unknown error')}\n\n{result.get('status_message', '')}"
             return None, error_msg
-            
+        
     except Exception as e:
         import traceback
         return None, f"❌ Worker communication error: {str(e)}\n\n{traceback.format_exc()}"
@@ -780,7 +815,7 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
             error_msg = f"❌ Worker process ended before processing request (exit code: {return_code})"
             if stderr_from_buffer:
                 error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-            else:
+        else:
                 error_msg += "\n\n(No stderr output captured. The worker may have crashed during startup.)"
             return None, error_msg
         
@@ -801,7 +836,7 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
                     error_msg = f"❌ Worker process ended while waiting for response (exit code: {return_code})"
                     if stderr_from_buffer:
                         error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
-                    return None, error_msg
+        return None, error_msg
                 else:
                     return None, f"❌ Worker process timeout - no response received within {timeout_seconds} seconds"
         
@@ -821,7 +856,14 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
                     error_msg += "\n\n(No stderr output captured. Check container logs for details.)"
                 return None, error_msg
             else:
-                return None, "❌ Worker process ended unexpectedly (no output received)"
+                # Worker is still running but no output - might be hanging
+                stderr_from_buffer = "".join(_WORKER_STDERR.get(model_key, []))
+                error_msg = "❌ Worker process ended unexpectedly (no output received)"
+                if stderr_from_buffer:
+                    error_msg += f"\n\nWorker stderr output:\n{stderr_from_buffer}"
+                else:
+                    error_msg += "\n\n(No stderr output captured. Worker may have crashed silently or is hanging.)"
+                return None, error_msg
         
         # Validate JSON before parsing
         result_line = result_line.strip()

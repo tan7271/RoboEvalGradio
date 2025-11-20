@@ -535,12 +535,31 @@ def main():
                 continue
             
             try:
-                print(f"DEBUG: Starting inference for task: {request.get('task_name', 'unknown')}", file=sys.stderr, flush=True)
-                result = run_inference(request)
-                print(f"DEBUG: Inference completed, sending result", file=sys.stderr, flush=True)
+                task_name = request.get('task_name', 'unknown')
+                print(f"DEBUG: Starting inference for task: {task_name}", file=sys.stderr, flush=True)
+                
+                # Redirect stdout temporarily to capture any output from the environment
+                # This prevents environment output from interfering with our JSON protocol
+                import io
+                from contextlib import redirect_stdout
+                
+                # Capture any stdout from the environment during inference
+                stdout_capture = io.StringIO()
+                try:
+                    with redirect_stdout(stdout_capture):
+                        result = run_inference(request)
+                finally:
+                    # Check if anything was printed to stdout (this shouldn't happen, but log it if it does)
+                    captured_output = stdout_capture.getvalue()
+                    if captured_output:
+                        print(f"⚠️  WARNING: Environment printed to stdout during inference: {repr(captured_output[:500])}", file=sys.stderr, flush=True)
+                        # If we captured output, it means something printed to stdout
+                        # This could interfere with our JSON protocol, so log it
+                
+                print(f"DEBUG: Inference completed for {task_name}, sending result", file=sys.stderr, flush=True)
                 result_json = json.dumps(result)
                 print(result_json, flush=True)
-                print(f"DEBUG: Result sent successfully", file=sys.stderr, flush=True)
+                print(f"DEBUG: Result sent successfully for {task_name}", file=sys.stderr, flush=True)
             except Exception as e:
                 # Error during inference - send error response as JSON
                 import traceback

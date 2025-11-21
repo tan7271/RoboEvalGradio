@@ -369,18 +369,13 @@ def setup_env(task_name: str, downsample_rate: int = DEFAULT_DOWNSAMPLE_RATE):
             ee=True,
             floating_dofs=[],
         ),
-        observation_config=ObservationConfig(cameras=cameras, proprioception=True),
-        render_mode="rgb_array",
+        observation_config=ObservationConfig(cameras=cameras),
+        render_mode=None,  # Use None for headless rendering (matches working eval script)
         robot_cls=BimanualPanda,
         control_frequency=CONTROL_FREQUENCY_MAX // downsample_rate,
     )
     
     return env, prompt
-
-
-def _unpack_obs(obs_or_tuple):
-    """Unpack observation if it's a tuple."""
-    return obs_or_tuple[0] if isinstance(obs_or_tuple, (tuple, list)) else obs_or_tuple
 
 
 def run_inference_loop(
@@ -404,8 +399,11 @@ def run_inference_loop(
 
     for step_idx in range(max_steps):
         # Collect observation image
-        cur_obs = _unpack_obs(obs)
-        images.append(copy.deepcopy(cur_obs["rgb_head"]))
+        # First observation is a tuple, subsequent ones are dicts (matches working script)
+        if step_idx == 0:
+            images.append(copy.deepcopy(obs[0]["rgb_head"]))
+        else:
+            images.append(obs["rgb_head"])
         
         # Get action from model
         image = Image.fromarray(np.moveaxis(images[-1], 0, -1))

@@ -681,8 +681,8 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
         import select
         import sys
         
-        # Wait for output with timeout (inference can take a while, use 300 seconds = 5 minutes)
-        timeout_seconds = 300.0
+        # Wait for output with timeout (inference can take a while, use 900 seconds = 15 minutes)
+        timeout_seconds = 900.0
         if hasattr(select, 'select'):
             # Unix-like system
             ready, _, _ = select.select([worker.stdout], [], [], timeout_seconds)
@@ -823,8 +823,8 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
         import select
         import sys
         
-        # Wait for output with timeout (300 seconds)
-        timeout_seconds = 300.0
+        # Wait for output with timeout (900 seconds = 15 minutes)
+        timeout_seconds = 900.0
         if hasattr(select, 'select'):
             # Unix-like system
             ready, _, _ = select.select([worker.stdout], [], [], timeout_seconds)

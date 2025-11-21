@@ -283,7 +283,9 @@ def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
     os.makedirs(manual_root, exist_ok=True)
 
     # Download all files in the subdirectory
-    for relpath in wanted:
+    print(f"DEBUG: Downloading {len(wanted)} files from Hugging Face Hub...", file=sys.stderr, flush=True)
+    for idx, relpath in enumerate(wanted, 1):
+        print(f"DEBUG: Downloading file {idx}/{len(wanted)}: {relpath}", file=sys.stderr, flush=True)
         hf_hub_download(
             repo_id=repo_id,
             filename=relpath,
@@ -292,6 +294,7 @@ def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
             local_dir=manual_root,
             local_dir_use_symlinks=True,
         )
+    print("DEBUG: All files downloaded successfully", file=sys.stderr, flush=True)
 
     manual_ckpt_dir = os.path.join(manual_root, subdir)
 
@@ -468,20 +471,28 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
             }
         
         # Get checkpoint path (downloads from Hugging Face Hub if not provided)
+        print(f"DEBUG: Getting checkpoint path for {task_name}...", file=sys.stderr, flush=True)
         checkpoint_path = get_checkpoint_path(task_name, checkpoint_path)
+        print(f"DEBUG: Checkpoint path: {checkpoint_path}", file=sys.stderr, flush=True)
         
         # Register OpenVLA components
+        print("DEBUG: Registering OpenVLA components...", file=sys.stderr, flush=True)
         register_openvla()
         
         # Load model
+        print(f"DEBUG: Loading model from {checkpoint_path}...", file=sys.stderr, flush=True)
         device = DEFAULT_DEVICE
         processor, model = load_vla_model(checkpoint_path, device)
+        print(f"DEBUG: Model loaded successfully on {device}", file=sys.stderr, flush=True)
         
         # Setup environment
+        print(f"DEBUG: Setting up environment for {task_name}...", file=sys.stderr, flush=True)
         env, default_prompt = setup_env(task_name, downsample_rate=DEFAULT_DOWNSAMPLE_RATE)
         instruction = custom_instruction if custom_instruction else default_prompt
+        print(f"DEBUG: Environment setup complete. Instruction: {instruction[:50]}...", file=sys.stderr, flush=True)
         
         # Run inference
+        print(f"DEBUG: Starting inference loop (max_steps={max_steps})...", file=sys.stderr, flush=True)
         stats, images = run_inference_loop(
             env=env,
             processor=processor,
@@ -490,10 +501,13 @@ def run_inference(request: Dict[str, Any]) -> Dict[str, Any]:
             device=device,
             max_steps=max_steps
         )
+        print(f"DEBUG: Inference loop complete. Steps: {stats['steps']}, Images: {len(images)}", file=sys.stderr, flush=True)
         
         # Save video
+        print(f"DEBUG: Saving video (fps={fps})...", file=sys.stderr, flush=True)
         video_path = os.path.join(tempfile.gettempdir(), f"openvla_rollout_{task_name}_{os.getpid()}.mp4")
         save_frames_to_video(images, video_path, fps=fps)
+        print(f"DEBUG: Video saved to {video_path}", file=sys.stderr, flush=True)
         
         # Cleanup
         env.close()

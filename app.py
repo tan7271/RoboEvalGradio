@@ -598,6 +598,34 @@ def cleanup_workers():
 atexit.register(cleanup_workers)
 
 
+def terminate_other_worker(current_model_key: str):
+    """Terminate the other model's worker to free GPU memory when switching models."""
+    global _INFERENCE_WORKERS, _WORKER_STDERR
+    
+    # Find the other model key
+    other_model_key = "openvla" if current_model_key == "openpi" else "openpi"
+    
+    # Check if the other worker is running
+    other_worker = _INFERENCE_WORKERS.get(other_model_key)
+    if other_worker and other_worker.poll() is None:
+        print(f"Terminating {other_model_key} worker to free GPU memory for {current_model_key}...", flush=True)
+        try:
+            other_worker.terminate()
+            try:
+                other_worker.wait(timeout=5)
+                print(f"✓ {other_model_key} worker terminated successfully", flush=True)
+            except subprocess.TimeoutExpired:
+                print(f"⚠️  {other_model_key} worker didn't terminate gracefully, killing...", flush=True)
+                other_worker.kill()
+                other_worker.wait()
+        except Exception as e:
+            print(f"⚠️  Error terminating {other_model_key} worker: {e}", flush=True)
+        finally:
+            # Mark as terminated
+            _INFERENCE_WORKERS[other_model_key] = None
+            _WORKER_STDERR[other_model_key] = []  # Clear stderr buffer
+
+
 @dataclasses.dataclass
 class InferenceRequest:
     """Normalized payload for invoking model backends from the UI."""
@@ -632,6 +660,9 @@ def run_pi0_inference(request: InferenceRequest) -> Tuple[Optional[str], str]:
     """Dispatch OpenPI inference to subprocess"""
     model_key = "openpi"  # Define model_key for this function
     try:
+        # Terminate OpenVLA worker if running to free GPU memory
+        terminate_other_worker(model_key)
+        
         request.progress(0, desc="Starting OpenPI worker...")
         worker = get_inference_worker(model_key)
         
@@ -774,6 +805,9 @@ def run_openvla_inference(request: InferenceRequest) -> Tuple[Optional[str], str
     """Dispatch OpenVLA inference to subprocess"""
     model_key = "openvla"  # Define model_key for this function
     try:
+        # Terminate OpenPI worker if running to free GPU memory
+        terminate_other_worker(model_key)
+        
         request.progress(0, desc="Starting OpenVLA worker...")
         worker = get_inference_worker(model_key)
         

@@ -29,6 +29,8 @@ try:
     os.environ["DISPLAY"] = ":99"
     os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
     os.environ["GALLIUM_DRIVER"] = "llvmpipe"
+    # PyTorch CUDA memory allocator settings to reduce fragmentation
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     # Debug: verify environment variables are set
     print(f"DEBUG: MUJOCO_GL={os.environ.get('MUJOCO_GL')}, PYOPENGL_PLATFORM={os.environ.get('PYOPENGL_PLATFORM')}", file=sys.stderr, flush=True)
 except Exception as e:
@@ -203,6 +205,30 @@ DEFAULT_DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 DEFAULT_DOWNSAMPLE_RATE = 25
 CAMERA_RESOLUTION = (256, 256)
 
+# Model cache
+_MODEL_CACHE: Dict[str, Tuple[AutoProcessor, AutoModelForVision2Seq]] = {}
+
+
+def clear_gpu_memory():
+    """Clear PyTorch GPU memory and model cache."""
+    global _MODEL_CACHE
+    
+    # Clear the model cache
+    if _MODEL_CACHE:
+        print(f"Clearing {len(_MODEL_CACHE)} cached model(s) to free GPU memory...", file=sys.stderr, flush=True)
+        _MODEL_CACHE.clear()
+    
+    # Clear PyTorch CUDA cache
+    try:
+        import gc
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        print("GPU memory cleared successfully", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"Warning: Could not fully clear GPU memory: {e}", file=sys.stderr, flush=True)
+
 # Environment registry
 _ENV_CLASSES = {
     "CubeHandover": (CubeHandover, "handover the rod from one hand to the other hand"),
@@ -240,8 +266,7 @@ _ENV_CLASSES = {
     "StackTwoBlocksPositionOrientation": (StackTwoBlocksPositionAndOrientation, "stack the two cubes")
 }
 
-# Global model cache
-_MODEL_CACHE = {}
+# Model cache is defined above (line 209)
 
 
 def get_checkpoint_path(task_name: str, ckpt_path: Optional[str] = None) -> str:
@@ -329,6 +354,12 @@ def load_vla_model(ckpt_path: str, device: str = DEFAULT_DEVICE) -> Tuple[AutoPr
     """
     if ckpt_path in _MODEL_CACHE:
         return _MODEL_CACHE[ckpt_path]
+    
+    # Clear GPU memory before loading new model if cache is not empty
+    # This helps when switching from OpenPI to OpenVLA
+    if _MODEL_CACHE:
+        print("Clearing GPU memory before loading new model...", file=sys.stderr, flush=True)
+        clear_gpu_memory()
     
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"Checkpoint path does not exist: {ckpt_path}")

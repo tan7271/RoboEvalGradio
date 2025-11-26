@@ -89,9 +89,8 @@ cp -r $CLONE_DIR/thirdparty $SITE_PACKAGES/ || true
 
 echo "✓ RoboEval installed in base environment"
 
-# DISABLED: OpenPI installation (temporarily disabled for OpenVLA testing)
 # Install git-based packages in openpi_env if it exists
-if false && conda env list | grep -q "openpi_env"; then
+if conda env list | grep -q "openpi_env"; then
     echo "Installing git-based packages in openpi_env..."
     conda run -n openpi_env pip install --no-cache-dir \
         git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5 \

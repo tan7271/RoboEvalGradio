@@ -1015,6 +1015,133 @@ def update_model_description(model_key: str) -> str:
     return _format_model_info(model_key)
 
 
+def run_model_comparison(
+    model_a_key: str,
+    model_b_key: str,
+    task_name: str,
+    max_steps: float,
+    fps: float,
+    progress=gr.Progress(),
+) -> Tuple[Optional[str], Optional[str], str]:
+    """Run both models sequentially on the same task and return both video paths."""
+    try:
+        # Validate model keys
+        if model_a_key not in MODEL_REGISTRY:
+            return None, None, f"❌ Unknown model A: {model_a_key}"
+        if model_b_key not in MODEL_REGISTRY:
+            return None, None, f"❌ Unknown model B: {model_b_key}"
+        
+        if model_a_key == model_b_key:
+            return None, None, "❌ Please select two different models for comparison."
+        
+        status_messages = []
+        
+        # Create a progress wrapper that maps 0-1 to a specific range
+        class ProgressWrapper:
+            def __init__(self, base_progress, start, end):
+                self.base_progress = base_progress
+                self.start = start
+                self.end = end
+            
+            def __call__(self, p, desc=None):
+                mapped_p = self.start + (self.end - self.start) * p
+                return self.base_progress(mapped_p, desc=desc)
+        
+        # Run Model A
+        progress_a = ProgressWrapper(progress, 0.0, 0.5)
+        progress_a(0.0, desc=f"Running {MODEL_REGISTRY[model_a_key].label}...")
+        request_a = InferenceRequest(
+            task_name=task_name,
+            checkpoint_path="",  # Use default checkpoint
+            custom_instruction=None,
+            max_steps=int(max_steps),
+            fps=int(fps),
+            progress=progress_a,
+        )
+        
+        model_a = MODEL_REGISTRY[model_a_key]
+        video_a, status_a = model_a.run_inference(request_a)
+        status_messages.append(f"**{MODEL_REGISTRY[model_a_key].label}**: {status_a}")
+        
+        if video_a is None:
+            return None, None, f"❌ Model A ({MODEL_REGISTRY[model_a_key].label}) failed:\n\n{status_a}"
+        
+        # Run Model B
+        progress_b = ProgressWrapper(progress, 0.5, 1.0)
+        progress_b(0.0, desc=f"Running {MODEL_REGISTRY[model_b_key].label}...")
+        request_b = InferenceRequest(
+            task_name=task_name,
+            checkpoint_path="",  # Use default checkpoint
+            custom_instruction=None,
+            max_steps=int(max_steps),
+            fps=int(fps),
+            progress=progress_b,
+        )
+        
+        model_b = MODEL_REGISTRY[model_b_key]
+        video_b, status_b = model_b.run_inference(request_b)
+        status_messages.append(f"**{MODEL_REGISTRY[model_b_key].label}**: {status_b}")
+        
+        if video_b is None:
+            return video_a, None, f"❌ Model B ({MODEL_REGISTRY[model_b_key].label}) failed:\n\n{status_b}\n\nModel A completed successfully."
+        
+        progress(1.0, desc="Comparison complete!")
+        
+        status_text = "### Comparison Results\n\n" + "\n\n".join(status_messages)
+        status_text += "\n\n✅ Both models completed successfully! Watch the videos below and rate which one performed better."
+        
+        return video_a, video_b, status_text
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ Comparison error: {str(e)}\n\n```\n{traceback.format_exc()}\n```"
+        return None, None, error_msg
+
+
+def save_rating(
+    model_a_key: str,
+    model_b_key: str,
+    task_name: str,
+    selected_model: str,
+) -> str:
+    """Save user rating to a JSON file."""
+    try:
+        rating_file = "comparison_ratings.json"
+        
+        # Create rating entry
+        rating_entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "model_a": model_a_key,
+            "model_b": model_b_key,
+            "task": task_name,
+            "selected": selected_model,  # "model_a" or "model_b"
+        }
+        
+        # Load existing ratings or create new list
+        if os.path.exists(rating_file):
+            try:
+                with open(rating_file, "r") as f:
+                    ratings = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                ratings = []
+        else:
+            ratings = []
+        
+        # Append new rating
+        ratings.append(rating_entry)
+        
+        # Save back to file
+        with open(rating_file, "w") as f:
+            json.dump(ratings, f, indent=2)
+        
+        selected_label = MODEL_REGISTRY[model_a_key].label if selected_model == "model_a" else MODEL_REGISTRY[model_b_key].label
+        return f"✅ Rating saved! You selected **{selected_label}** as the better model for task **{task_name}**."
+        
+    except Exception as e:
+        import traceback
+        return f"❌ Error saving rating: {str(e)}\n\n```\n{traceback.format_exc()}\n```"
+
+
 # ---------------------- Gradio Interface ----------------------
 def create_gradio_interface():
     """Create and return the Gradio interface."""
@@ -1035,86 +1162,188 @@ def create_gradio_interface():
         - **OpenVLA**: **Optional** - if not provided, will download from Hugging Face Hub automatically
         """)
         
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### Configuration")
-
-                default_model_key = next(iter(MODEL_REGISTRY.keys()))
-                model_dropdown = gr.Dropdown(
-                    choices=[(definition.label, key) for key, definition in MODEL_REGISTRY.items()],
-                    value=default_model_key,
-                    label="Select Model",
-                    info="Choose which policy backend to use"
-                )
-
-                model_info = gr.Markdown(_format_model_info(default_model_key))
-                
-                task_dropdown = gr.Dropdown(
-                    choices=sorted(_ENV_CLASSES.keys()),
-                    label="Select Task",
-                    value="LiftPot",
-                    info="Choose the robot manipulation task"
-                )
-                
-                checkpoint_input = gr.Textbox(
-                    label="Checkpoint Path (Optional)",
-                    placeholder="Leave empty to auto-download from HF Hub",
-                    value="",
-                    info="Optional: Provide a custom checkpoint path. Leave empty to use the selected model's default."
-                )
-                
-                instruction_input = gr.Textbox(
-                    label="Custom Instruction (Optional)",
-                    placeholder="Leave empty to use default task instruction",
-                    value="",
-                    info="Override the default task instruction"
-                )
-                
+        with gr.Tabs() as tabs:
+            # Single Model Tab
+            with gr.Tab("Single Model"):
                 with gr.Row():
-                    max_steps_input = gr.Number(
-                        label="Max Steps",
-                        value=DEFAULT_MAX_STEPS,
-                        precision=0,
-                        minimum=10,
-                        maximum=1000
-                    )
-                    
-                    fps_input = gr.Number(
-                        label="Video FPS",
-                        value=DEFAULT_FPS,
-                        precision=0,
-                        minimum=1,
-                        maximum=30
-                    )
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Configuration")
+
+                        default_model_key = next(iter(MODEL_REGISTRY.keys()))
+                        model_dropdown = gr.Dropdown(
+                            choices=[(definition.label, key) for key, definition in MODEL_REGISTRY.items()],
+                            value=default_model_key,
+                            label="Select Model",
+                            info="Choose which policy backend to use"
+                        )
+
+                        model_info = gr.Markdown(_format_model_info(default_model_key))
+                        
+                        task_dropdown = gr.Dropdown(
+                            choices=sorted(_ENV_CLASSES.keys()),
+                            label="Select Task",
+                            value="LiftPot",
+                            info="Choose the robot manipulation task"
+                        )
+                        
+                        checkpoint_input = gr.Textbox(
+                            label="Checkpoint Path (Optional)",
+                            placeholder="Leave empty to auto-download from HF Hub",
+                            value="",
+                            info="Optional: Provide a custom checkpoint path. Leave empty to use the selected model's default."
+                        )
+                        
+                        instruction_input = gr.Textbox(
+                            label="Custom Instruction (Optional)",
+                            placeholder="Leave empty to use default task instruction",
+                            value="",
+                            info="Override the default task instruction"
+                        )
+                        
+                        with gr.Row():
+                            max_steps_input = gr.Number(
+                                label="Max Steps",
+                                value=DEFAULT_MAX_STEPS,
+                                precision=0,
+                                minimum=10,
+                                maximum=1000
+                            )
+                            
+                            fps_input = gr.Number(
+                                label="Video FPS",
+                                value=DEFAULT_FPS,
+                                precision=0,
+                                minimum=1,
+                                maximum=30
+                            )
+                        
+                        run_button = gr.Button("🚀 Run Inference", variant="primary", size="lg")
+                        
+                    with gr.Column(scale=2):
+                        gr.Markdown("### Results")
+                        
+                        status_output = gr.Markdown("*Click 'Run Inference' to start...*")
+                        video_output = gr.Video(label="Execution Video", interactive=False)
                 
-                run_button = gr.Button("🚀 Run Inference", variant="primary", size="lg")
+                model_dropdown.change(
+                    fn=update_model_description,
+                    inputs=model_dropdown,
+                    outputs=model_info,
+                    queue=False,
+                )
                 
-            with gr.Column(scale=2):
-                gr.Markdown("### Results")
+                # Event handler
+                run_button.click(
+                    fn=run_model_inference,
+                    inputs=[
+                        model_dropdown,
+                        task_dropdown,
+                        checkpoint_input,
+                        instruction_input,
+                        max_steps_input,
+                        fps_input
+                    ],
+                    outputs=[video_output, status_output]
+                )
+            
+            # Compare Models Tab
+            with gr.Tab("Compare Models"):
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Configuration")
+                        
+                        # Get available model choices (only openpi and openvla)
+                        available_models = [(MODEL_REGISTRY[key].label, key) for key in MODEL_REGISTRY.keys() if key in ["openpi", "openvla"]]
+                        
+                        model_a_dropdown = gr.Dropdown(
+                            choices=available_models,
+                            value=available_models[0][1] if available_models else None,
+                            label="Model A",
+                            info="First model to compare"
+                        )
+                        
+                        model_b_dropdown = gr.Dropdown(
+                            choices=available_models,
+                            value=available_models[1][1] if len(available_models) > 1 else (available_models[0][1] if available_models else None),
+                            label="Model B",
+                            info="Second model to compare"
+                        )
+                        
+                        compare_task_dropdown = gr.Dropdown(
+                            choices=sorted(_ENV_CLASSES.keys()),
+                            label="Select Task",
+                            value="LiftPot",
+                            info="Choose the robot manipulation task to compare"
+                        )
+                        
+                        with gr.Row():
+                            compare_max_steps_input = gr.Number(
+                                label="Max Steps",
+                                value=DEFAULT_MAX_STEPS,
+                                precision=0,
+                                minimum=10,
+                                maximum=1000
+                            )
+                            
+                            compare_fps_input = gr.Number(
+                                label="Video FPS",
+                                value=DEFAULT_FPS,
+                                precision=0,
+                                minimum=1,
+                                maximum=30
+                            )
+                        
+                        compare_run_button = gr.Button("🚀 Run Comparison", variant="primary", size="lg")
+                        
+                    with gr.Column(scale=2):
+                        gr.Markdown("### Results")
+                        
+                        compare_status_output = gr.Markdown("*Click 'Run Comparison' to start...*")
+                        
+                        with gr.Row():
+                            video_a_output = gr.Video(label="Model A Video", interactive=False)
+                            video_b_output = gr.Video(label="Model B Video", interactive=False)
+                        
+                        gr.Markdown("### Rating")
+                        gr.Markdown("**Which is better, Model A or Model B?**")
+                        
+                        with gr.Row():
+                            rate_a_button = gr.Button("Model A is Better", variant="secondary")
+                            rate_b_button = gr.Button("Model B is Better", variant="secondary")
+                        
+                        rating_confirmation = gr.Markdown("")
                 
-                status_output = gr.Markdown("*Click 'Run Inference' to start...*")
-                video_output = gr.Video(label="Execution Video", interactive=False)
-        
-        model_dropdown.change(
-            fn=update_model_description,
-            inputs=model_dropdown,
-            outputs=model_info,
-            queue=False,
-        )
-        
-        # Event handler
-        run_button.click(
-            fn=run_model_inference,
-            inputs=[
-                model_dropdown,
-                task_dropdown,
-                checkpoint_input,
-                instruction_input,
-                max_steps_input,
-                fps_input
-            ],
-            outputs=[video_output, status_output]
-        )
+                # Event handlers for comparison
+                compare_run_button.click(
+                    fn=run_model_comparison,
+                    inputs=[
+                        model_a_dropdown,
+                        model_b_dropdown,
+                        compare_task_dropdown,
+                        compare_max_steps_input,
+                        compare_fps_input
+                    ],
+                    outputs=[video_a_output, video_b_output, compare_status_output]
+                )
+                
+                # Event handlers for rating
+                def handle_rate_a(model_a_key, model_b_key, task_name):
+                    return save_rating(model_a_key, model_b_key, task_name, "model_a")
+                
+                def handle_rate_b(model_a_key, model_b_key, task_name):
+                    return save_rating(model_a_key, model_b_key, task_name, "model_b")
+                
+                rate_a_button.click(
+                    fn=handle_rate_a,
+                    inputs=[model_a_dropdown, model_b_dropdown, compare_task_dropdown],
+                    outputs=[rating_confirmation]
+                )
+                
+                rate_b_button.click(
+                    fn=handle_rate_b,
+                    inputs=[model_a_dropdown, model_b_dropdown, compare_task_dropdown],
+                    outputs=[rating_confirmation]
+                )
         
         gr.Markdown("""
         ---

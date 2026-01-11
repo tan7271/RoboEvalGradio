@@ -14,6 +14,8 @@ license: mit
 
 A Hugging Face Space for running robot manipulation policy inference on various tasks from the RoboEval benchmark. Supports **OpenPI** (Pi0 bimanual policy) and **OpenVLA** (vision-language-action) backends.
 
+[Watch the demo video](https://youtu.be/pTVMu93jPbw)
+
 ## 🚀 Features
 
 - **Multiple Model Backends**: Switch between OpenPI and OpenVLA using environment variables

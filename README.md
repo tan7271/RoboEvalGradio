@@ -1,3 +1,15 @@
+---
+title: Robot Policy Inference on RoboEval Tasks
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+startup_duration_timeout: 30m
+pinned: false
+license: mit
+---
+
 # Robot Policy Inference on RoboEval Tasks
 
 A Hugging Face Space for running robot manipulation policy inference on various tasks from the RoboEval benchmark. Supports **OpenPI** (Pi0 bimanual policy) and **OpenVLA** (vision-language-action) backends.

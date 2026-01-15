@@ -15,43 +15,19 @@ import subprocess
 import sys
 import datetime
 
-# Verify base dependencies are available
-print("===== Checking Base Environment Dependencies =====", flush=True)
+# Verbose mode: set ROBOEVAL_VERBOSE=1 to see detailed output
+ROBOEVAL_VERBOSE = os.environ.get("ROBOEVAL_VERBOSE", "0") == "1"
 
-try:
-    import gradio as gr
-    print(f"✓ gradio imported successfully (version: {gr.__version__})", flush=True)
-except ImportError as e:
-    print(f"✗ gradio import failed: {e}", flush=True)
-    print("ERROR: Gradio is required but not installed. Please install it:", flush=True)
-    print("  pip install gradio>=4.0.0", flush=True)
-    sys.exit(1)
+def log_verbose(*args, **kwargs):
+    """Print only if verbose mode is enabled"""
+    if ROBOEVAL_VERBOSE:
+        print(*args, **kwargs)
 
-try:
-    import numpy
-    print(f"✓ numpy imported successfully (version: {numpy.__version__})", flush=True)
-except ImportError as e:
-    print(f"✗ numpy import failed: {e}", flush=True)
-    print("ERROR: NumPy is required but not installed.", flush=True)
-    sys.exit(1)
-
-try:
-    from PIL import Image
-    print("✓ pillow imported successfully", flush=True)
-except ImportError as e:
-    print(f"✗ pillow import failed: {e}", flush=True)
-    print("ERROR: Pillow is required but not installed.", flush=True)
-    sys.exit(1)
-
-try:
-    import huggingface_hub
-    print(f"✓ huggingface_hub imported successfully (version: {huggingface_hub.__version__})", flush=True)
-except ImportError as e:
-    print(f"✗ huggingface_hub import failed: {e}", flush=True)
-    print("ERROR: huggingface_hub is required but not installed.", flush=True)
-    sys.exit(1)
-
-print("===== All base dependencies verified successfully =====\n", flush=True)
+# Import base dependencies
+import gradio as gr
+import numpy
+from PIL import Image
+import huggingface_hub
 
 # --- Headless defaults ---
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -61,17 +37,18 @@ os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp")
 # Note: Model dependencies are installed in separate conda environments
 # RoboEval and git packages are installed at runtime using GH_TOKEN environment variable
 
-print(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+log_verbose(f"===== Application Startup at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n")
 
 # Check and install RoboEval if needed (runtime installation)
 def check_and_install_roboeval():
     """Check if RoboEval is installed, install if missing"""
     try:
         import roboeval
-        print("✓ RoboEval is already installed", flush=True)
+        log_verbose("✓ RoboEval is already installed", flush=True)
         return True
     except ImportError:
-        print("⚠️  RoboEval not found. Checking if installation is needed...", flush=True)
+        if ROBOEVAL_VERBOSE:
+            print("⚠️  RoboEval not found. Checking if installation is needed...", flush=True)
         # RoboEval installation is handled by run.sh before app.py starts
         # If we get here, it means installation failed or is in progress
         return False
@@ -95,12 +72,12 @@ def verify_environments():
             import shutil
             conda_path = shutil.which("conda")
             if not conda_path:
-                print("⚠️  Warning: conda not found in PATH. Skipping environment verification.")
-                print("  Assuming environments will be available when needed.")
+                log_verbose("⚠️  Warning: conda not found in PATH. Skipping environment verification.")
+                log_verbose("  Assuming environments will be available when needed.")
                 return True, False  # Assume OpenPI exists, OpenVLA disabled
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        print("⚠️  Warning: Could not check for conda. Skipping environment verification.")
-        print("  Assuming environments will be available when needed.")
+        log_verbose("⚠️  Warning: Could not check for conda. Skipping environment verification.")
+        log_verbose("  Assuming environments will be available when needed.")
         return True, False  # Assume OpenPI exists, OpenVLA disabled
     
     # If conda is available, check environments
@@ -113,29 +90,30 @@ def verify_environments():
         )
         
         if result.returncode != 0:
-            print(f"⚠️  Warning: conda env list failed: {result.stderr}")
-            print("  Assuming environments will be available when needed.")
+            log_verbose(f"⚠️  Warning: conda env list failed: {result.stderr}")
+            log_verbose("  Assuming environments will be available when needed.")
             return True, False
         
         has_openpi = "openpi_env" in result.stdout
         has_openvla = "openvla_env" in result.stdout
         
-        print("Environment check:")
-        print(f"  {'✓' if has_openpi else '✗'} openpi_env")
-        print(f"  {'✓' if has_openvla else '✗'} openvla_env (optional)")
+        if ROBOEVAL_VERBOSE:
+            print("Environment check:")
+            print(f"  {'✓' if has_openpi else '✗'} openpi_env")
+            print(f"  {'✓' if has_openvla else '✗'} openvla_env (optional)")
         
-        if not has_openpi:
+        if not has_openpi and ROBOEVAL_VERBOSE:
             print("⚠️  Warning: openpi_env not found in conda env list.")
             print("  Will attempt to use it anyway - check will happen when worker starts.")
         
         return has_openpi, has_openvla
         
     except subprocess.TimeoutExpired:
-        print("⚠️  Warning: conda env list timed out. Skipping verification.")
+        log_verbose("⚠️  Warning: conda env list timed out. Skipping verification.")
         return True, False
     except Exception as e:
-        print(f"⚠️  Warning: Error checking conda environments: {e}")
-        print("  Assuming environments will be available when needed.")
+        log_verbose(f"⚠️  Warning: Error checking conda environments: {e}")
+        log_verbose("  Assuming environments will be available when needed.")
         return True, False
 
 HAS_OPENPI, HAS_OPENVLA = verify_environments()
@@ -208,10 +186,10 @@ def _stderr_reader(proc: subprocess.Popen, model_key: str):
                 # EOF - process likely exited
                 break
             _WORKER_STDERR[model_key].append(line)
-            # Also print to console for debugging
-            print(f"[{model_key} worker stderr] {line}", end="", flush=True)
+            # Only print to console in verbose mode
+            log_verbose(f"[{model_key} worker stderr] {line}", end="", flush=True)
     except Exception as e:
-        # Log any errors in the stderr reader itself
+        # Always log errors in the stderr reader itself
         print(f"[{model_key} stderr reader error] {e}", flush=True)
     finally:
         # Try to read any remaining buffered output
@@ -219,7 +197,8 @@ def _stderr_reader(proc: subprocess.Popen, model_key: str):
             remaining = proc.stderr.read()
             if remaining:
                 _WORKER_STDERR[model_key].append(remaining)
-                print(f"[{model_key} worker stderr (remaining)] {remaining}", flush=True)
+                # Only print remaining output in verbose mode
+                log_verbose(f"[{model_key} worker stderr (remaining)] {remaining}", flush=True)
         except:
             pass
 

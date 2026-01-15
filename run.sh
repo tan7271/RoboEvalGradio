@@ -24,10 +24,16 @@ fi
 # Install RoboEval at runtime if not already installed
 # This uses GH_TOKEN environment variable (available at runtime in HuggingFace Spaces)
 if [ -n "$GH_TOKEN" ]; then
-    echo "Installing RoboEval at runtime (if not already installed)..."
-    bash install_roboeval_runtime.sh || {
-        echo "⚠️  Warning: RoboEval installation failed. The app will continue but some features may not work."
-    }
+    # Check if RoboEval is already installed before running installer
+    if python -c "import roboeval" 2>/dev/null; then
+        # Already installed, skip
+        :
+    else
+        echo "Installing RoboEval at runtime (if not already installed)..."
+        bash install_roboeval_runtime.sh || {
+            echo "⚠️  Warning: RoboEval installation failed. The app will continue but some features may not work."
+        }
+    fi
 else
     echo "⚠️  Warning: GH_TOKEN not set. Skipping RoboEval installation."
     echo "   Some features may not work. Set GH_TOKEN as a secret in Space settings."
